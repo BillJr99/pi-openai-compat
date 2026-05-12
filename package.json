@@ -1,0 +1,23 @@
+{
+  "name": "@billjr99/pi-openai-compat",
+  "version": "1.0.0",
+  "description": "pi-coding-agent extension: OpenAI-compatible endpoint support (OpenRouter, NVIDIA NIM, Nous Portal, Ollama, custom)",
+  "author": "Bill Mongan <https://github.com/BillJr99>",
+  "license": "MIT",
+  "homepage": "https://github.com/BillJr99/pi-openai-compat#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BillJr99/pi-openai-compat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BillJr99/pi-openai-compat/issues"
+  },
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "dependencies": {}
+}
