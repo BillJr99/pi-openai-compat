@@ -7,7 +7,7 @@
   "homepage": "https://github.com/BillJr99/pi-openai-compat#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BillJr99/pi-openai-compat.git"
+    "url": "git+https://github.com/BillJr99/pi-openai-compat.git"
   },
   "bugs": {
     "url": "https://github.com/BillJr99/pi-openai-compat/issues"
@@ -17,7 +17,9 @@
     "README.md"
   ],
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "dependencies": {}
 }
