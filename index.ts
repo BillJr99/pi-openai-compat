@@ -57,6 +57,10 @@ const TEMPLATES: Record<string, {
   baseUrl: string;
   keyless: boolean;
   keyHint?: string;
+  /** If set, only models whose id appears in this list are kept after fetching. */
+  modelFilter?: string[];
+  /** If true, prompt the user to confirm/edit the base URL (like ollama/custom). */
+  promptUrl?: boolean;
 }> = {
   openrouter: {
     displayName: "OpenRouter",
@@ -76,15 +80,116 @@ const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "Your Nous Portal API key",
   },
+  google: {
+    displayName: "Google Gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    keyless: false,
+    keyHint: "Free key from aistudio.google.com (free Google account, no credit card)",
+    modelFilter: [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-3-flash-preview",
+      "gemini-3.1-flash-lite-preview",
+      "gemini-3.1-pro-preview",
+    ],
+  },
+  cerebras: {
+    displayName: "Cerebras",
+    baseUrl: "https://api.cerebras.ai/v1",
+    keyless: false,
+    keyHint: "Free account at cerebras.ai (no credit card)",
+    modelFilter: ["qwen3-235b"],
+  },
+  github_models: {
+    displayName: "GitHub Models",
+    baseUrl: "https://models.inference.ai.azure.com",
+    keyless: false,
+    keyHint: "GitHub Personal Access Token (any free GitHub account, no special scopes needed)",
+    modelFilter: ["gpt-4o", "openai/gpt-4.1"],
+  },
+  sambanova: {
+    displayName: "SambaNova",
+    baseUrl: "https://api.sambanova.ai/v1",
+    keyless: false,
+    keyHint: "Free account at cloud.sambanova.ai (no credit card)",
+    modelFilter: [
+      "Meta-Llama-3.3-70B-Instruct",
+      "DeepSeek-V3.1",
+      "DeepSeek-V3.2",
+      "gpt-oss-120b",
+      "Llama-4-Maverick-17B-128E-Instruct",
+      "gemma-3-12b-it",
+    ],
+  },
+  mistral: {
+    displayName: "Mistral",
+    baseUrl: "https://api.mistral.ai/v1",
+    keyless: false,
+    keyHint: 'Free "Experiment" tier at console.mistral.ai (no credit card)',
+    modelFilter: [
+      "mistral-large-latest",
+      "mistral-medium-latest",
+      "magistral-medium-latest",
+      "codestral-latest",
+      "devstral-latest",
+    ],
+  },
+  groq: {
+    displayName: "Groq",
+    baseUrl: "https://api.groq.com/openai/v1",
+    keyless: false,
+    keyHint: "Free account at console.groq.com (no credit card)",
+    modelFilter: [
+      "llama-3.3-70b-versatile",
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-20b",
+      "qwen/qwen3-32b",
+      "llama-3.1-8b-instant",
+    ],
+  },
+  cloudflare: {
+    displayName: "Cloudflare Workers AI",
+    baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
+    keyless: false,
+    promptUrl: true,
+    keyHint: 'Cloudflare API Token with "Workers AI Read" permission (free account at cloudflare.com)',
+    modelFilter: [
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/openai/gpt-oss-120b",
+      "@cf/zai-org/glm-4.7-flash",
+      "@cf/moonshotai/kimi-k2.5",
+      "@cf/moonshotai/kimi-k2.6",
+      "@cf/qwen/qwen3-30b-a3b-fp8",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+      "@cf/ibm-granite/granite-4.0-h-micro",
+    ],
+  },
+  zhipu: {
+    displayName: "Zhipu (Z.ai / BigModel)",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    keyless: false,
+    keyHint: "Free account at open.bigmodel.cn (no credit card)",
+    modelFilter: ["glm-4.5-flash", "glm-4.7-flash"],
+  },
+  cohere: {
+    displayName: "Cohere",
+    baseUrl: "https://api.cohere.com/compatibility/v1",
+    keyless: false,
+    keyHint: "Your Cohere API key",
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
     keyless: true,
+    promptUrl: true,
   },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
     keyless: false,
+    promptUrl: true,
     keyHint: "Bearer token or API key (leave blank if keyless)",
   },
 };
@@ -266,17 +371,16 @@ export default async function (pi: ExtensionAPI) {
       const key = keys[labels.indexOf(selectedLabel)];
       const tpl = TEMPLATES[key];
 
-      // Step 2 — base URL (prompted for ollama / custom)
+      // Step 2 — base URL (prompted when template has promptUrl set)
       let baseUrl = tpl.baseUrl;
-      if (key === "ollama" || key === "custom") {
+      if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
-        const entered = await ctx.ui.input(
-          "Base URL",
-          key === "ollama"
-            ? `Ollama base URL — press Enter for default (${defaultUrl}):`
-            : "Base URL of your endpoint (e.g. https://api.example.com/v1):",
-          defaultUrl
-        );
+        const prompt = key === "ollama"
+          ? `Ollama base URL — press Enter for default (${defaultUrl}):`
+          : key === "cloudflare"
+          ? "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID:"
+          : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
+        const entered = await ctx.ui.input("Base URL", prompt, defaultUrl);
         if (entered === null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         baseUrl = (entered.trim() || defaultUrl).replace(/\/+$/, "");
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
@@ -306,6 +410,13 @@ export default async function (pi: ExtensionAPI) {
       if (!models.length) {
         ctx.ui.notify("Connected but no models returned. Check URL and key.", "error");
         return;
+      }
+
+      // Apply model filter if the template defines one (keeps only free/known models).
+      if (tpl.modelFilter && tpl.modelFilter.length > 0) {
+        const filterSet = new Set(tpl.modelFilter);
+        const filtered = models.filter((m) => filterSet.has(m.id));
+        if (filtered.length > 0) models = filtered;
       }
 
       // Step 5 — save to config and register with pi
