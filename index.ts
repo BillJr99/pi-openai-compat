@@ -381,7 +381,7 @@ export default async function (pi: ExtensionAPI) {
           ? "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID:"
           : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
         const entered = await ctx.ui.input("Base URL", prompt, defaultUrl);
-        if (entered === null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         baseUrl = (entered.trim() || defaultUrl).replace(/\/+$/, "");
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
       }
@@ -394,7 +394,7 @@ export default async function (pi: ExtensionAPI) {
           `${tpl.keyHint ?? "Your API key"} — leave blank if keyless:`,
           ""
         );
-        if (entered === null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         apiKey = entered.trim() || null;
       }
 
