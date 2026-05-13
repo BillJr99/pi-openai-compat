@@ -371,14 +371,23 @@ export default async function (pi: ExtensionAPI) {
       const key = keys[labels.indexOf(selectedLabel)];
       const tpl = TEMPLATES[key];
 
-      // Step 2 — base URL (prompted when template has promptUrl set)
+      // Step 2 — base URL
       let baseUrl = tpl.baseUrl;
-      if (tpl.promptUrl) {
+      if (key === "cloudflare") {
+        // Ask for just the account ID and splice it into the template URL.
+        const entered = await ctx.ui.input(
+          "Account ID",
+          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
+          ""
+        );
+        if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const accountId = entered.trim();
+        if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
+        baseUrl = tpl.baseUrl.replace("YOUR_ACCOUNT_ID", accountId);
+      } else if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
         const prompt = key === "ollama"
           ? `Ollama base URL — press Enter for default (${defaultUrl}):`
-          : key === "cloudflare"
-          ? "Replace YOUR_ACCOUNT_ID with your Cloudflare account ID:"
           : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
         const entered = await ctx.ui.input("Base URL", prompt, defaultUrl);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
@@ -416,7 +425,14 @@ export default async function (pi: ExtensionAPI) {
       if (tpl.modelFilter && tpl.modelFilter.length > 0) {
         const filterSet = new Set(tpl.modelFilter);
         const filtered = models.filter((m) => filterSet.has(m.id));
-        if (filtered.length > 0) models = filtered;
+        if (filtered.length > 0) {
+          models = filtered;
+        } else {
+          ctx.ui.notify(
+            `None of the expected free models were found — registering all ${models.length} model(s) returned by the provider. The provider may have renamed their models.`,
+            "warning"
+          );
+        }
       }
 
       // Step 5 — save to config and register with pi
