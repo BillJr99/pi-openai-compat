@@ -56,7 +56,6 @@ const TEMPLATES: Record<string, {
   displayName: string;
   baseUrl: string;
   keyless: boolean;
-  keyHint?: string;
   /** If set, only models whose id appears in this list are kept after fetching. */
   modelFilter?: string[];
   /** If true, prompt the user to confirm/edit the base URL (like ollama/custom). */
@@ -66,25 +65,21 @@ const TEMPLATES: Record<string, {
     displayName: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
     keyless: false,
-    keyHint: "sk-or-... from openrouter.ai/keys",
   },
   nvidia_nim: {
     displayName: "NVIDIA NIM",
     baseUrl: "https://integrate.api.nvidia.com/v1",
     keyless: false,
-    keyHint: "nvapi-... from build.nvidia.com",
   },
   nous: {
     displayName: "Nous Research Portal",
     baseUrl: "https://inference-api.nousresearch.com/v1",
     keyless: false,
-    keyHint: "Your Nous Portal API key",
   },
   google: {
     displayName: "Google Gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     keyless: false,
-    keyHint: "Free key from aistudio.google.com (free Google account, no credit card)",
     modelFilter: [
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
@@ -97,21 +92,18 @@ const TEMPLATES: Record<string, {
     displayName: "Cerebras",
     baseUrl: "https://api.cerebras.ai/v1",
     keyless: false,
-    keyHint: "Free account at cerebras.ai (no credit card)",
     modelFilter: ["qwen3-235b"],
   },
   github_models: {
     displayName: "GitHub Models",
     baseUrl: "https://models.inference.ai.azure.com",
     keyless: false,
-    keyHint: "GitHub Personal Access Token (any free GitHub account, no special scopes needed)",
     modelFilter: ["gpt-4o", "openai/gpt-4.1"],
   },
   sambanova: {
     displayName: "SambaNova",
     baseUrl: "https://api.sambanova.ai/v1",
     keyless: false,
-    keyHint: "Free account at cloud.sambanova.ai (no credit card)",
     modelFilter: [
       "Meta-Llama-3.3-70B-Instruct",
       "DeepSeek-V3.1",
@@ -125,7 +117,6 @@ const TEMPLATES: Record<string, {
     displayName: "Mistral",
     baseUrl: "https://api.mistral.ai/v1",
     keyless: false,
-    keyHint: 'Free "Experiment" tier at console.mistral.ai (no credit card)',
     modelFilter: [
       "mistral-large-latest",
       "mistral-medium-latest",
@@ -138,7 +129,6 @@ const TEMPLATES: Record<string, {
     displayName: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
     keyless: false,
-    keyHint: "Free account at console.groq.com (no credit card)",
     modelFilter: [
       "llama-3.3-70b-versatile",
       "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -153,7 +143,6 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
     keyless: false,
     promptUrl: true,
-    keyHint: 'Cloudflare API Token with "Workers AI Read" permission (free account at cloudflare.com)',
     modelFilter: [
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       "@cf/meta/llama-4-scout-17b-16e-instruct",
@@ -170,14 +159,12 @@ const TEMPLATES: Record<string, {
     displayName: "Zhipu (Z.ai / BigModel)",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     keyless: false,
-    keyHint: "Free account at open.bigmodel.cn (no credit card)",
     modelFilter: ["glm-4.5-flash", "glm-4.7-flash"],
   },
   cohere: {
     displayName: "Cohere",
     baseUrl: "https://api.cohere.com/compatibility/v1",
     keyless: false,
-    keyHint: "Your Cohere API key",
   },
   ollama: {
     displayName: "Ollama (local, keyless)",
@@ -190,7 +177,6 @@ const TEMPLATES: Record<string, {
     baseUrl: "",
     keyless: false,
     promptUrl: true,
-    keyHint: "Bearer token or API key (leave blank if keyless)",
   },
 };
 
@@ -400,7 +386,7 @@ export default async function (pi: ExtensionAPI) {
       if (!tpl.keyless) {
         const entered = await ctx.ui.input(
           "API Key",
-          `${tpl.keyHint ?? "Your API key"} — leave blank if keyless:`,
+          "Your API key — leave blank if keyless:",
           ""
         );
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
