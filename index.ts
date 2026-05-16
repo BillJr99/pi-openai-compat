@@ -128,6 +128,11 @@ const TEMPLATES: Record<string, {
     keyless: true,
     promptUrl: true,
   },
+  ollama_cloud: {
+    displayName: "Ollama Cloud",
+    baseUrl: "https://ollama.com/v1",
+    keyless: false,
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
