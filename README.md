@@ -41,6 +41,7 @@ If pi is already running when you install, type `/reload` first.
 | **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | `nvapi-...` from build.nvidia.com |
 | **Nous Research Portal** | `https://inference-api.nousresearch.com/v1` | Nous Portal API key |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
+| **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **Custom** | Any URL you supply | Optional bearer token |
 
 ---
