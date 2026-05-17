@@ -194,6 +194,12 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://ollama.com/v1",
     keyless: false,
   },
+  llmproxy: {
+    displayName: "llmproxy (local)",
+    baseUrl: "http://localhost:8080/v1",
+    keyless: true,
+    promptUrl: true,
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
