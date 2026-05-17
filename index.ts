@@ -127,6 +127,11 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.deepseek.com/v1",
     keyless: false,
   },
+  xai: {
+    displayName: "xAI (Grok)",
+    baseUrl: "https://api.x.ai/v1",
+    keyless: false,
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
