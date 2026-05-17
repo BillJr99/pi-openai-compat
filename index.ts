@@ -175,7 +175,7 @@ const TEMPLATES: Record<string, {
   },
   moonshot: {
     displayName: "Moonshot (Kimi)",
-    baseUrl: "https://api.moonshot.cn/v1",
+    baseUrl: "https://api.moonshot.ai/v1",
     keyless: false,
   },
   minimax: {
