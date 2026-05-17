@@ -60,6 +60,8 @@ const TEMPLATES: Record<string, {
   modelFilter?: string[];
   /** If true, prompt the user to confirm/edit the base URL (like ollama/custom). */
   promptUrl?: boolean;
+  /** Used when the provider does not support GET /v1/models (e.g. returns 405). */
+  fallbackModels?: string[];
 }> = {
   openrouter: {
     displayName: "OpenRouter",
@@ -106,15 +108,43 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.groq.com/openai/v1",
     keyless: false,
   },
-  cloudflare: {
+  cloudflare_workers: {
     displayName: "Cloudflare Workers AI",
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
     keyless: false,
     promptUrl: true,
+    // Cloudflare Workers AI returns 405 for GET /v1/models; use a curated list.
+    fallbackModels: [
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/qwen/qwen3-30b-a3b-fp8",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+    ],
+  },
+  cloudflare_ai_gateway: {
+    displayName: "Cloudflare AI Gateway",
+    // YOUR_PROVIDER is the upstream slug (e.g. "workers-ai", "openai"). /v1 is
+    // appended so that fetchModels and chat completions hit the correct path.
+    baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/YOUR_PROVIDER/v1",
+    keyless: false,
+    promptUrl: true,
+    fallbackModels: [
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/qwen/qwen3-30b-a3b-fp8",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+    ],
   },
   zhipu: {
     displayName: "Zhipu (Z.ai / BigModel)",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    keyless: false,
+  },
+  zai: {
+    displayName: "Z.ai",
+    baseUrl: "https://api.z.ai/api/paas/v4",
     keyless: false,
   },
   cohere: {
@@ -127,6 +157,32 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.deepseek.com/v1",
     keyless: false,
   },
+  xai: {
+    displayName: "xAI (Grok)",
+    baseUrl: "https://api.x.ai/v1",
+    keyless: false,
+  },
+  huggingface: {
+    displayName: "Hugging Face",
+    baseUrl: "https://router.huggingface.co/v1",
+    keyless: false,
+    fallbackModels: [
+      "meta-llama/Llama-3.3-70B-Instruct",
+      "meta-llama/Meta-Llama-3-8B-Instruct",
+      "mistralai/Mistral-7B-Instruct-v0.3",
+      "Qwen/Qwen2.5-72B-Instruct",
+    ],
+  },
+  moonshot: {
+    displayName: "Moonshot (Kimi)",
+    baseUrl: "https://api.moonshot.ai/v1",
+    keyless: false,
+  },
+  minimax: {
+    displayName: "MiniMax",
+    baseUrl: "https://api.minimaxi.chat/v1",
+    keyless: false,
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
@@ -137,6 +193,12 @@ const TEMPLATES: Record<string, {
     displayName: "Ollama Cloud",
     baseUrl: "https://ollama.com/v1",
     keyless: false,
+  },
+  llmproxy: {
+    displayName: "llmproxy (local)",
+    baseUrl: "http://localhost:8080/v1",
+    keyless: true,
+    promptUrl: true,
   },
   custom: {
     displayName: "Custom Endpoint",
@@ -192,6 +254,21 @@ function saveConfig(config: ExtensionConfig): void {
 // Networking
 // ─────────────────────────────────────────────────────────────────────────────
 
+function isLocalUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchModels(baseUrl: string, apiKey: string | null): Promise<CachedModel[]> {
   const url = `${baseUrl.replace(/\/+$/, "")}/models`;
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -234,9 +311,9 @@ function compatKey(key: string): string {
 
 function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): void {
   pi.registerProvider(compatKey(key), {
-    name: p.displayName,
+    name: `compat/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
-    apiKey: p.apiKey ?? "ollama",
+    apiKey: p.apiKey ?? (isLocalUrl(p.baseUrl) ? "local" : ""),
     api: "openai-completions" as const,
     models: buildProviderModels(p.cachedModels),
   });
@@ -325,8 +402,7 @@ export default async function (pi: ExtensionAPI) {
 
       // Step 2 — base URL
       let baseUrl = tpl.baseUrl;
-      if (key === "cloudflare") {
-        // Ask for just the account ID and splice it into the template URL.
+      if (key === "cloudflare_workers") {
         const entered = await ctx.ui.input(
           "Account ID",
           "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
@@ -336,10 +412,41 @@ export default async function (pi: ExtensionAPI) {
         const accountId = entered.trim();
         if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
         baseUrl = tpl.baseUrl.replace("YOUR_ACCOUNT_ID", accountId);
+      } else if (key === "cloudflare_ai_gateway") {
+        const accountIdInput = await ctx.ui.input(
+          "Account ID",
+          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
+          ""
+        );
+        if (accountIdInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const accountId = accountIdInput.trim();
+        if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
+
+        const gatewayInput = await ctx.ui.input(
+          "Gateway Name",
+          "Your AI Gateway name/slug (find it under AI → AI Gateway in the Cloudflare dashboard):",
+          ""
+        );
+        if (gatewayInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const gatewaySlug = gatewayInput.trim();
+        if (!gatewaySlug) { ctx.ui.notify("Gateway name cannot be empty.", "error"); return; }
+
+        const providerInput = await ctx.ui.input(
+          "Provider",
+          "Upstream provider slug (e.g. openai, workers-ai, anthropic — must match your gateway config):",
+          "openai"
+        );
+        if (providerInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const provider = providerInput.trim() || "openai";
+
+        baseUrl = tpl.baseUrl
+          .replace("YOUR_ACCOUNT_ID", accountId)
+          .replace("YOUR_GATEWAY_SLUG", gatewaySlug)
+          .replace("YOUR_PROVIDER", provider);
       } else if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
-        const prompt = key === "ollama"
-          ? `Ollama base URL — press Enter for default (${defaultUrl}):`
+        const prompt = isLocalUrl(defaultUrl)
+          ? `Base URL — press Enter for default (${defaultUrl}):`
           : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
         const entered = await ctx.ui.input("Base URL", prompt, defaultUrl);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
@@ -347,9 +454,9 @@ export default async function (pi: ExtensionAPI) {
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
       }
 
-      // Step 3 — API key
+      // Step 3 — API key (skipped for keyless templates and detected local URLs)
       let apiKey: string | null = null;
-      if (!tpl.keyless) {
+      if (!tpl.keyless && !isLocalUrl(baseUrl)) {
         const entered = await ctx.ui.input(
           "API Key",
           "Your API key — leave blank if keyless:",
@@ -365,8 +472,16 @@ export default async function (pi: ExtensionAPI) {
       try {
         models = await fetchModels(baseUrl, apiKey);
       } catch (err) {
-        ctx.ui.notify(`Connection failed — not saved.\n${err}`, "error");
-        return;
+        if (tpl.fallbackModels && tpl.fallbackModels.length > 0) {
+          ctx.ui.notify(
+            `Could not fetch model list from ${tpl.displayName} (${err}).\nUsing built-in model list instead.`,
+            "warning"
+          );
+          models = tpl.fallbackModels.map((id) => ({ id }));
+        } else {
+          ctx.ui.notify(`Connection failed — not saved.\n${err}`, "error");
+          return;
+        }
       }
       if (!models.length) {
         ctx.ui.notify("Connected but no models returned. Check URL and key.", "error");
