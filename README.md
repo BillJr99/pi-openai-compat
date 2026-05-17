@@ -42,6 +42,7 @@ If pi is already running when you install, type `/reload` first.
 | **Nous Research Portal** | `https://inference-api.nousresearch.com/v1` | Nous Portal API key |
 | **DeepSeek** | `https://api.deepseek.com/v1` | API key from platform.deepseek.com |
 | **xAI (Grok)** | `https://api.x.ai/v1` | API key from console.x.ai |
+| **Hugging Face** | `https://api-inference.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **Custom** | Any URL you supply | Optional bearer token |
