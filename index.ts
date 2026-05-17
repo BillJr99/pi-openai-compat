@@ -112,6 +112,12 @@ const TEMPLATES: Record<string, {
     keyless: false,
     promptUrl: true,
   },
+  cloudflare_ai_gateway: {
+    displayName: "Cloudflare AI Gateway",
+    baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/openai",
+    keyless: false,
+    promptUrl: true,
+  },
   zhipu: {
     displayName: "Zhipu (Z.ai / BigModel)",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",

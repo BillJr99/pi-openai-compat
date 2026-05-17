@@ -44,6 +44,8 @@ If pi is already running when you install, type `/reload` first.
 | **xAI (Grok)** | `https://api.x.ai/v1` | API key from console.x.ai |
 | **Hugging Face** | `https://api-inference.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
 | **Moonshot (Kimi)** | `https://api.moonshot.cn/v1` | `sk-...` key from platform.moonshot.cn |
+| **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com |
+| **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **Custom** | Any URL you supply | Optional bearer token |
