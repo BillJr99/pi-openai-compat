@@ -213,6 +213,21 @@ function saveConfig(config: ExtensionConfig): void {
 // Networking
 // ─────────────────────────────────────────────────────────────────────────────
 
+function isLocalUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchModels(baseUrl: string, apiKey: string | null): Promise<CachedModel[]> {
   const url = `${baseUrl.replace(/\/+$/, "")}/models`;
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -257,7 +272,7 @@ function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): voi
   pi.registerProvider(compatKey(key), {
     name: p.displayName,
     baseUrl: p.baseUrl,
-    apiKey: p.apiKey ?? "ollama",
+    apiKey: p.apiKey ?? (isLocalUrl(p.baseUrl) ? "local" : ""),
     api: "openai-completions" as const,
     models: buildProviderModels(p.cachedModels),
   });
@@ -389,8 +404,8 @@ export default async function (pi: ExtensionAPI) {
           .replace("YOUR_PROVIDER", provider);
       } else if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
-        const prompt = key === "ollama"
-          ? `Ollama base URL — press Enter for default (${defaultUrl}):`
+        const prompt = isLocalUrl(defaultUrl)
+          ? `Base URL — press Enter for default (${defaultUrl}):`
           : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
         const entered = await ctx.ui.input("Base URL", prompt, defaultUrl);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
@@ -398,9 +413,9 @@ export default async function (pi: ExtensionAPI) {
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
       }
 
-      // Step 3 — API key
+      // Step 3 — API key (skipped for keyless templates and detected local URLs)
       let apiKey: string | null = null;
-      if (!tpl.keyless) {
+      if (!tpl.keyless && !isLocalUrl(baseUrl)) {
         const entered = await ctx.ui.input(
           "API Key",
           "Your API key — leave blank if keyless:",
