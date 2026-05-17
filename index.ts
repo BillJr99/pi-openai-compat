@@ -164,8 +164,14 @@ const TEMPLATES: Record<string, {
   },
   huggingface: {
     displayName: "Hugging Face",
-    baseUrl: "https://api-inference.huggingface.co/v1",
+    baseUrl: "https://router.huggingface.co/v1",
     keyless: false,
+    fallbackModels: [
+      "meta-llama/Llama-3.3-70B-Instruct",
+      "meta-llama/Meta-Llama-3-8B-Instruct",
+      "mistralai/Mistral-7B-Instruct-v0.3",
+      "Qwen/Qwen2.5-72B-Instruct",
+    ],
   },
   moonshot: {
     displayName: "Moonshot (Kimi)",
