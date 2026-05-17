@@ -305,7 +305,7 @@ function compatKey(key: string): string {
 
 function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): void {
   pi.registerProvider(compatKey(key), {
-    name: p.displayName,
+    name: `llmproxy/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
     apiKey: p.apiKey ?? (isLocalUrl(p.baseUrl) ? "local" : ""),
     api: "openai-completions" as const,
