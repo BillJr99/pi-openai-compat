@@ -123,6 +123,11 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     keyless: false,
   },
+  zai: {
+    displayName: "Z.ai",
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    keyless: false,
+  },
   cohere: {
     displayName: "Cohere",
     baseUrl: "https://api.cohere.com/compatibility/v1",

@@ -45,6 +45,7 @@ If pi is already running when you install, type `/reload` first.
 | **Hugging Face** | `https://api-inference.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
 | **Moonshot (Kimi)** | `https://api.moonshot.cn/v1` | `sk-...` key from platform.moonshot.cn |
 | **MiniMax** | `https://api.minimaxi.chat/v1` | API key from platform.minimaxi.chat |
+| **Z.ai** | `https://api.z.ai/api/paas/v4` | API key from z.ai |
 | **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com |
 | **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
