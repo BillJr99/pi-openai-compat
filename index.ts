@@ -122,6 +122,11 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.cohere.com/compatibility/v1",
     keyless: false,
   },
+  deepseek: {
+    displayName: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    keyless: false,
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
