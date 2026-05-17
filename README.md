@@ -42,8 +42,8 @@ If pi is already running when you install, type `/reload` first.
 | **Nous Research Portal** | `https://inference-api.nousresearch.com/v1` | Nous Portal API key |
 | **DeepSeek** | `https://api.deepseek.com/v1` | API key from platform.deepseek.com |
 | **xAI (Grok)** | `https://api.x.ai/v1` | API key from console.x.ai |
-| **Hugging Face** | `https://api-inference.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
-| **Moonshot (Kimi)** | `https://api.moonshot.cn/v1` | `sk-...` key from platform.moonshot.cn |
+| **Hugging Face** | `https://router.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
+| **Moonshot (Kimi)** | `https://api.moonshot.ai/v1` | `sk-...` key from platform.moonshot.ai |
 | **MiniMax** | `https://api.minimaxi.chat/v1` | API key from platform.minimaxi.chat |
 | **Z.ai** | `https://api.z.ai/api/paas/v4` | API key from z.ai |
 | **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com |
@@ -51,6 +51,17 @@ If pi is already running when you install, type `/reload` first.
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **Custom** | Any URL you supply | Optional bearer token |
+
+> **Providers with built-in fallback model lists (as of May 2026)**
+> Some providers do not support `GET /v1/models` or return a non-JSON response.
+> For these, the extension substitutes a built-in list and shows a warning during
+> `/compat-login`.
+>
+> | Provider | Reason |
+> |---|---|
+> | **Cloudflare Workers AI** | Returns HTTP 405 — method not supported |
+> | **Cloudflare AI Gateway** | Returns HTTP 401 — no anonymous model enumeration |
+> | **Hugging Face** | Returns HTML rather than JSON for `/v1/models` |
 
 ---
 
