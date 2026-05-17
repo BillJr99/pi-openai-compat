@@ -106,7 +106,7 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.groq.com/openai/v1",
     keyless: false,
   },
-  cloudflare: {
+  cloudflare_workers: {
     displayName: "Cloudflare Workers AI",
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
     keyless: false,
@@ -114,7 +114,7 @@ const TEMPLATES: Record<string, {
   },
   cloudflare_ai_gateway: {
     displayName: "Cloudflare AI Gateway",
-    baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/openai",
+    baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/YOUR_PROVIDER",
     keyless: false,
     promptUrl: true,
   },
@@ -346,8 +346,7 @@ export default async function (pi: ExtensionAPI) {
 
       // Step 2 — base URL
       let baseUrl = tpl.baseUrl;
-      if (key === "cloudflare") {
-        // Ask for just the account ID and splice it into the template URL.
+      if (key === "cloudflare_workers") {
         const entered = await ctx.ui.input(
           "Account ID",
           "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
@@ -357,6 +356,37 @@ export default async function (pi: ExtensionAPI) {
         const accountId = entered.trim();
         if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
         baseUrl = tpl.baseUrl.replace("YOUR_ACCOUNT_ID", accountId);
+      } else if (key === "cloudflare_ai_gateway") {
+        const accountIdInput = await ctx.ui.input(
+          "Account ID",
+          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
+          ""
+        );
+        if (accountIdInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const accountId = accountIdInput.trim();
+        if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
+
+        const gatewayInput = await ctx.ui.input(
+          "Gateway Name",
+          "Your AI Gateway name/slug (find it under AI → AI Gateway in the Cloudflare dashboard):",
+          ""
+        );
+        if (gatewayInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const gatewaySlug = gatewayInput.trim();
+        if (!gatewaySlug) { ctx.ui.notify("Gateway name cannot be empty.", "error"); return; }
+
+        const providerInput = await ctx.ui.input(
+          "Provider",
+          "Upstream provider slug (e.g. openai, workers-ai, anthropic — must match your gateway config):",
+          "openai"
+        );
+        if (providerInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
+        const provider = providerInput.trim() || "openai";
+
+        baseUrl = tpl.baseUrl
+          .replace("YOUR_ACCOUNT_ID", accountId)
+          .replace("YOUR_GATEWAY_SLUG", gatewaySlug)
+          .replace("YOUR_PROVIDER", provider);
       } else if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
         const prompt = key === "ollama"
