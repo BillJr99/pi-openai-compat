@@ -137,6 +137,11 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api-inference.huggingface.co/v1",
     keyless: false,
   },
+  moonshot: {
+    displayName: "Moonshot (Kimi)",
+    baseUrl: "https://api.moonshot.cn/v1",
+    keyless: false,
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
