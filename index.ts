@@ -148,6 +148,11 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.moonshot.cn/v1",
     keyless: false,
   },
+  minimax: {
+    displayName: "MiniMax",
+    baseUrl: "https://api.minimaxi.chat/v1",
+    keyless: false,
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
