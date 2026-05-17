@@ -60,6 +60,8 @@ const TEMPLATES: Record<string, {
   modelFilter?: string[];
   /** If true, prompt the user to confirm/edit the base URL (like ollama/custom). */
   promptUrl?: boolean;
+  /** Used when the provider does not support GET /v1/models (e.g. returns 405). */
+  fallbackModels?: string[];
 }> = {
   openrouter: {
     displayName: "OpenRouter",
@@ -111,12 +113,29 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
     keyless: false,
     promptUrl: true,
+    // Cloudflare Workers AI returns 405 for GET /v1/models; use a curated list.
+    fallbackModels: [
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/qwen/qwen3-30b-a3b-fp8",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+    ],
   },
   cloudflare_ai_gateway: {
     displayName: "Cloudflare AI Gateway",
-    baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/YOUR_PROVIDER",
+    // YOUR_PROVIDER is the upstream slug (e.g. "workers-ai", "openai"). /v1 is
+    // appended so that fetchModels and chat completions hit the correct path.
+    baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/YOUR_PROVIDER/v1",
     keyless: false,
     promptUrl: true,
+    fallbackModels: [
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/qwen/qwen3-30b-a3b-fp8",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+    ],
   },
   zhipu: {
     displayName: "Zhipu (Z.ai / BigModel)",
@@ -441,8 +460,16 @@ export default async function (pi: ExtensionAPI) {
       try {
         models = await fetchModels(baseUrl, apiKey);
       } catch (err) {
-        ctx.ui.notify(`Connection failed — not saved.\n${err}`, "error");
-        return;
+        if (tpl.fallbackModels && tpl.fallbackModels.length > 0) {
+          ctx.ui.notify(
+            `Could not fetch model list from ${tpl.displayName} (${err}).\nUsing built-in model list instead.`,
+            "warning"
+          );
+          models = tpl.fallbackModels.map((id) => ({ id }));
+        } else {
+          ctx.ui.notify(`Connection failed — not saved.\n${err}`, "error");
+          return;
+        }
       }
       if (!models.length) {
         ctx.ui.notify("Connected but no models returned. Check URL and key.", "error");
