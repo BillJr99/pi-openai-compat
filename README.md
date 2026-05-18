@@ -44,7 +44,7 @@ If pi is already running when you install, type `/reload` first.
 | **xAI (Grok)** | `https://api.x.ai/v1` | API key from console.x.ai |
 | **Hugging Face** | `https://router.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
 | **Moonshot (Kimi)** | `https://api.moonshot.ai/v1` | `sk-...` key from platform.moonshot.ai |
-| **MiniMax** | `https://api.minimaxi.chat/v1` | API key from platform.minimaxi.chat |
+| **MiniMax** | `https://api.minimax.io/v1` | API key from platform.minimax.io |
 | **Z.ai** | `https://api.z.ai/api/paas/v4` | API key from z.ai |
 | **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com |
 | **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com |
