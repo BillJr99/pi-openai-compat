@@ -180,7 +180,7 @@ const TEMPLATES: Record<string, {
   },
   minimax: {
     displayName: "MiniMax",
-    baseUrl: "https://api.minimaxi.chat/v1",
+    baseUrl: "https://api.minimax.io/v1",
     keyless: false,
   },
   ollama: {
