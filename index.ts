@@ -228,6 +228,14 @@ const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "vercel.com/account/tokens",
   },
+  opencode_zen: {
+    displayName: "OpenCode Zen",
+    baseUrl: "https://opencode.ai/zen/v1",
+    keyless: false,
+    keyHint: "opencode.ai",
+    // Verify current model IDs via GET /v1/models — the free model list may change.
+    modelFilter: ["big-pickle", "deepseek-v4-flash-free", "minimax-m2.5-free", "nemotron-3-super-free"],
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
