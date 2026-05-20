@@ -200,6 +200,11 @@ const TEMPLATES: Record<string, {
     keyless: true,
     promptUrl: true,
   },
+  vercel: {
+    displayName: "Vercel AI Gateway",
+    baseUrl: "https://ai-gateway.vercel.sh/v1",
+    keyless: false,
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
