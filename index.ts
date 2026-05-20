@@ -62,57 +62,69 @@ const TEMPLATES: Record<string, {
   promptUrl?: boolean;
   /** Used when the provider does not support GET /v1/models (e.g. returns 405). */
   fallbackModels?: string[];
+  /** Where to obtain the API key; presence implies the key is required. */
+  keyHint?: string;
 }> = {
   openrouter: {
     displayName: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
     keyless: false,
+    keyHint: "openrouter.ai/keys",
   },
   nvidia_nim: {
     displayName: "NVIDIA NIM",
     baseUrl: "https://integrate.api.nvidia.com/v1",
     keyless: false,
+    keyHint: "build.nvidia.com",
   },
   nous: {
     displayName: "Nous Research Portal",
     baseUrl: "https://inference-api.nousresearch.com/v1",
     keyless: false,
+    keyHint: "nousresearch.com",
   },
   google: {
     displayName: "Google Gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     keyless: false,
+    keyHint: "aistudio.google.com/apikey",
   },
   cerebras: {
     displayName: "Cerebras",
     baseUrl: "https://api.cerebras.ai/v1",
     keyless: false,
+    keyHint: "cloud.cerebras.ai",
   },
   github_models: {
     displayName: "GitHub Models",
     baseUrl: "https://models.inference.ai.azure.com",
     keyless: false,
+    keyHint: "github.com/settings/tokens",
   },
   sambanova: {
     displayName: "SambaNova",
     baseUrl: "https://api.sambanova.ai/v1",
     keyless: false,
+    keyHint: "cloud.sambanova.ai",
   },
   mistral: {
     displayName: "Mistral",
     baseUrl: "https://api.mistral.ai/v1",
     keyless: false,
+    keyHint: "console.mistral.ai/api-keys",
   },
   groq: {
     displayName: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
     keyless: false,
+    keyHint: "console.groq.com/keys",
   },
   cloudflare_workers: {
     displayName: "Cloudflare Workers AI",
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
     keyless: false,
     promptUrl: true,
+    keyHint: "dash.cloudflare.com → My Profile → API Tokens",
     // Cloudflare Workers AI returns 405 for GET /v1/models; use a curated list.
     fallbackModels: [
       "@cf/meta/llama-4-scout-17b-16e-instruct",
@@ -129,6 +141,7 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/YOUR_PROVIDER/v1",
     keyless: false,
     promptUrl: true,
+    keyHint: "dash.cloudflare.com → My Profile → API Tokens",
     fallbackModels: [
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -141,31 +154,37 @@ const TEMPLATES: Record<string, {
     displayName: "Zhipu (Z.ai / BigModel)",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     keyless: false,
+    keyHint: "open.bigmodel.cn/usercenter/apikeys",
   },
   zai: {
     displayName: "Z.ai",
     baseUrl: "https://api.z.ai/api/paas/v4",
     keyless: false,
+    keyHint: "platform.z.ai",
   },
   cohere: {
     displayName: "Cohere",
     baseUrl: "https://api.cohere.com/compatibility/v1",
     keyless: false,
+    keyHint: "dashboard.cohere.com/api-keys",
   },
   deepseek: {
     displayName: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
     keyless: false,
+    keyHint: "platform.deepseek.com/api_keys",
   },
   xai: {
     displayName: "xAI (Grok)",
     baseUrl: "https://api.x.ai/v1",
     keyless: false,
+    keyHint: "console.x.ai",
   },
   huggingface: {
     displayName: "Hugging Face",
     baseUrl: "https://router.huggingface.co/v1",
     keyless: false,
+    keyHint: "huggingface.co/settings/tokens",
     fallbackModels: [
       "meta-llama/Llama-3.3-70B-Instruct",
       "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -177,11 +196,13 @@ const TEMPLATES: Record<string, {
     displayName: "Moonshot (Kimi)",
     baseUrl: "https://api.moonshot.ai/v1",
     keyless: false,
+    keyHint: "platform.moonshot.ai/console/api-key",
   },
   minimax: {
     displayName: "MiniMax",
     baseUrl: "https://api.minimax.io/v1",
     keyless: false,
+    keyHint: "platform.minimax.io",
   },
   ollama: {
     displayName: "Ollama (local, keyless)",
@@ -193,6 +214,7 @@ const TEMPLATES: Record<string, {
     displayName: "Ollama Cloud",
     baseUrl: "https://ollama.com/v1",
     keyless: false,
+    keyHint: "ollama.com/settings/api-keys",
   },
   llmproxy: {
     displayName: "llmproxy (local)",
@@ -204,6 +226,7 @@ const TEMPLATES: Record<string, {
     displayName: "Vercel AI Gateway",
     baseUrl: "https://ai-gateway.vercel.sh/v1",
     keyless: false,
+    keyHint: "vercel.com/account/tokens",
   },
   custom: {
     displayName: "Custom Endpoint",
@@ -462,11 +485,10 @@ export default async function (pi: ExtensionAPI) {
       // Step 3 — API key (skipped for keyless templates and detected local URLs)
       let apiKey: string | null = null;
       if (!tpl.keyless && !isLocalUrl(baseUrl)) {
-        const entered = await ctx.ui.input(
-          "API Key",
-          "Your API key — leave blank if keyless:",
-          ""
-        );
+        const keyPrompt = tpl.keyHint
+          ? `Your API key (required) — get it at ${tpl.keyHint}:`
+          : "Your API key — leave blank if keyless:";
+        const entered = await ctx.ui.input("API Key", keyPrompt, "");
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         apiKey = entered.trim() || null;
       }
