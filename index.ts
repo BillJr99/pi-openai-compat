@@ -204,6 +204,12 @@ const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "platform.minimax.io",
   },
+  venice: {
+    displayName: "Venice AI",
+    baseUrl: "https://api.venice.ai/api/v1",
+    keyless: false,
+    keyHint: "venice.ai/settings/api",
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
