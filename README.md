@@ -46,6 +46,7 @@ If pi is already running when you install, type `/reload` first.
 | **Moonshot (Kimi)** | `https://api.moonshot.ai/v1` | `sk-...` key from platform.moonshot.ai |
 | **MiniMax** | `https://api.minimax.io/v1` | API key from platform.minimax.io |
 | **Z.ai** | `https://api.z.ai/api/paas/v4` | API key from z.ai |
+| **Venice AI** | `https://api.venice.ai/api/v1` | API key from venice.ai/settings/api |
 | **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com |
 | **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com |
 | **Vercel AI Gateway** | `https://ai-gateway.vercel.sh/v1` | API key from vercel.com |
