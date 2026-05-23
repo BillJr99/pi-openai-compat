@@ -197,32 +197,33 @@ npm publish --access public
 ### Automated publishing via GitHub Actions
 
 Every push to `main` automatically bumps the patch version and publishes to npm.
-One-time setup is required:
+This workflow uses **npm trusted publishing** (OIDC) — no long-lived token or
+secret is needed. GitHub's identity is verified directly with npm at publish time.
 
-**1. Create an npm Automation token**
+One-time setup on npmjs.com is required:
 
-Go to npmjs.com → your avatar → **Access Tokens** → **Generate New Token** →
-choose **Automation** (works even when 2FA is enabled). Copy the token.
+**1. Enable trusted publishing for the package**
 
-**2. Add the token as a GitHub secret**
+Go to npmjs.com → your package `@billjr99/pi-openai-compat` → **Settings** →
+**Publishing** → enable **Trusted Publishing**, then add:
 
-From your local machine with the `gh` CLI installed:
+| Field | Value |
+|---|---|
+| Repository owner | `BillJr99` |
+| Repository name | `pi-openai-compat` |
+| Workflow filename | `publish.yml` |
+| Environment | *(leave blank)* |
 
-```bash
-gh secret set NPM_TOKEN --repo BillJr99/pi-openai-compat
-# paste the token when prompted
-```
+Save. That's it — no token to copy, rotate, or protect.
 
-Or via the GitHub web UI: **Settings → Secrets and variables → Actions →
-New repository secret** — name it `NPM_TOKEN`.
+**How it works**
 
-Verify it was stored:
+When the workflow runs, GitHub mints a short-lived OIDC token proving the job
+is running from this exact repo and workflow. npm validates it against the
+trusted publisher config above and allows the publish. The `--provenance` flag
+also attaches a signed build attestation to the package, visible on npmjs.com.
 
-```bash
-gh secret list --repo BillJr99/pi-openai-compat
-```
-
-After that, every push to `main` triggers `.github/workflows/publish.yml`,
+After setup, every push to `main` triggers `.github/workflows/publish.yml`,
 which bumps the patch version, commits it back with `[skip ci]` to avoid
 re-triggering, and publishes the new version to npm automatically.
 
