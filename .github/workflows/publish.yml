@@ -19,7 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          # No registry-url — OIDC trusted publishing handles auth directly;
+          # setting registry-url causes setup-node to write a token-based .npmrc
+          # that conflicts with the OIDC flow and results in a 404.
 
       - name: Configure git
         run: |
