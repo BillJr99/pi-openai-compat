@@ -196,16 +196,19 @@ npm publish --access public
 
 ### Automated publishing via GitHub Actions
 
-Every push to `main` automatically bumps the patch version and publishes to npm.
-This workflow uses **npm trusted publishing** (OIDC) — no long-lived token or
-secret is needed. GitHub's identity is verified directly with npm at publish time.
+Every push to `main` automatically bumps the patch version and publishes to npm
+via `.github/workflows/publish.yml`. This workflow uses **npm trusted publishing**
+(OIDC) — no long-lived token or secret is needed anywhere.
 
-One-time setup on npmjs.com is required:
+#### Required one-time setup on npmjs.com
 
-**1. Enable trusted publishing for the package**
+> **Do this before the first automated publish or it will fail.**
 
-Go to npmjs.com → your package `@billjr99/pi-openai-compat` → **Settings** →
-**Publishing** → enable **Trusted Publishing**, then add:
+1. Go to **npmjs.com** → sign in → click your avatar → **Packages** →
+   `@billjr99/pi-openai-compat`
+2. Click **Settings** (in the left sidebar of the package page)
+3. Scroll to **Publishing** → enable **Trusted Publishing**
+4. Add a publisher with these exact values:
 
 | Field | Value |
 |---|---|
@@ -214,18 +217,41 @@ Go to npmjs.com → your package `@billjr99/pi-openai-compat` → **Settings** �
 | Workflow filename | `publish.yml` |
 | Environment | *(leave blank)* |
 
-Save. That's it — no token to copy, rotate, or protect.
+5. Click **Save**
 
-**How it works**
+No token to copy, no secret to rotate. That's the only setup step.
 
-When the workflow runs, GitHub mints a short-lived OIDC token proving the job
-is running from this exact repo and workflow. npm validates it against the
-trusted publisher config above and allows the publish. The `--provenance` flag
-also attaches a signed build attestation to the package, visible on npmjs.com.
+#### What the workflow does
 
-After setup, every push to `main` triggers `.github/workflows/publish.yml`,
-which bumps the patch version, commits it back with `[skip ci]` to avoid
-re-triggering, and publishes the new version to npm automatically.
+```yaml
+# .github/workflows/publish.yml
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write    # push the version-bump commit back to main
+  id-token: write    # request an OIDC token from GitHub for npm auth
+```
+
+On every push to `main` the workflow:
+
+1. Checks out the repo with `GITHUB_TOKEN` so it can push back
+2. Runs `npm version patch --no-git-tag-version` to increment the patch number
+   in `package.json` (e.g. `1.1.0` → `1.1.1`)
+3. Commits the updated `package.json` with `[skip ci]` in the message so the
+   commit does not re-trigger the workflow
+4. Pushes the bump commit to `main`
+5. Runs `npm publish --access public --provenance`
+   - GitHub mints a short-lived OIDC token proving the job is running from
+     this exact repo and workflow
+   - npm validates it against the trusted publisher config above and allows
+     the publish — no `NPM_TOKEN` secret required
+   - `--provenance` attaches a signed build attestation to the package,
+     visible on the npmjs.com package page under **Provenance**
+
+The published package is immediately available at
+https://www.npmjs.com/package/@billjr99/pi-openai-compat.
 
 ### Installing from npm
 
