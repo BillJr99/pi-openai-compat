@@ -194,6 +194,38 @@ npm publish --access public
 
 `npm version` also creates a git tag, so GitHub gets release tags automatically.
 
+### Automated publishing via GitHub Actions
+
+Every push to `main` automatically bumps the patch version and publishes to npm.
+One-time setup is required:
+
+**1. Create an npm Automation token**
+
+Go to npmjs.com → your avatar → **Access Tokens** → **Generate New Token** →
+choose **Automation** (works even when 2FA is enabled). Copy the token.
+
+**2. Add the token as a GitHub secret**
+
+From your local machine with the `gh` CLI installed:
+
+```bash
+gh secret set NPM_TOKEN --repo BillJr99/pi-openai-compat
+# paste the token when prompted
+```
+
+Or via the GitHub web UI: **Settings → Secrets and variables → Actions →
+New repository secret** — name it `NPM_TOKEN`.
+
+Verify it was stored:
+
+```bash
+gh secret list --repo BillJr99/pi-openai-compat
+```
+
+After that, every push to `main` triggers `.github/workflows/publish.yml`,
+which bumps the patch version, commits it back with `[skip ci]` to avoid
+re-triggering, and publishes the new version to npm automatically.
+
 ### Installing from npm
 
 ```bash
