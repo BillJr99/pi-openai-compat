@@ -210,6 +210,18 @@ const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "venice.ai/settings/api",
   },
+  fireworks: {
+    displayName: "Fireworks AI",
+    baseUrl: "https://api.fireworks.ai/inference/v1",
+    keyless: false,
+    keyHint: "fireworks.ai/account/api-keys",
+  },
+  together: {
+    displayName: "Together AI",
+    baseUrl: "https://api.together.xyz/v1",
+    keyless: false,
+    keyHint: "api.together.ai/settings/api-keys",
+  },
   ollama: {
     displayName: "Ollama (local, keyless)",
     baseUrl: "http://localhost:11434/v1",
