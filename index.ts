@@ -44,6 +44,10 @@ interface ProviderConfig {
   modelsUrl?: string;
   modelsIdField?: string;
   modelsKeepTask?: string;
+  // Set once we've warned the user that this provider's saved baseUrl no longer
+  // matches its template and can't be auto-migrated, so the notice is shown
+  // only once rather than on every session_start while the config stays stale.
+  staleNotified?: boolean;
 }
 
 interface ExtensionConfig {
@@ -376,19 +380,24 @@ function escapeRegex(s: string): string {
  * treat as "this provider can't be healed automatically".
  */
 function recoverPlaceholders(templateUrl: string, savedUrl: string): Record<string, string> | null {
+  // Tolerate trailing-slash differences the same way the rest of the code does
+  // (e.g. baseUrl.replace(/\/+$/, "")), so a saved URL that differs only by a
+  // trailing slash still heals instead of being marked stale.
+  const tpl = templateUrl.replace(/\/+$/, "");
+  const saved = savedUrl.replace(/\/+$/, "");
   const order: string[] = [];
   const placeholderRe = new RegExp(URL_PLACEHOLDERS.join("|"), "g");
   let source = "^";
   let lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = placeholderRe.exec(templateUrl)) !== null) {
-    source += escapeRegex(templateUrl.slice(lastIndex, m.index)) + "([^/]+)";
+  while ((m = placeholderRe.exec(tpl)) !== null) {
+    source += escapeRegex(tpl.slice(lastIndex, m.index)) + "([^/]+)";
     order.push(m[0]);
     lastIndex = m.index + m[0].length;
   }
-  source += escapeRegex(templateUrl.slice(lastIndex)) + "$";
+  source += escapeRegex(tpl.slice(lastIndex)) + "$";
 
-  const match = new RegExp(source).exec(savedUrl);
+  const match = new RegExp(source).exec(saved);
   if (!match) return null;
   const out: Record<string, string> = {};
   order.forEach((name, i) => { out[name] = match[i + 1]; });
@@ -404,7 +413,8 @@ function applyPlaceholders(url: string, values: Record<string, string>): string 
 /**
  * Backfill missing discovery fields on saved providers from their template.
  * Mutates `config` in place; the caller is responsible for persisting when
- * `healed` is non-empty. `stale` lists providers that need a manual re-login.
+ * `healed` is non-empty. `stale` lists the provider *keys* that need a manual
+ * re-login (the caller resolves display names and dedupes notifications).
  */
 function migrateDiscoveryFields(config: ExtensionConfig): { healed: string[]; stale: string[] } {
   const healed: string[] = [];
@@ -416,7 +426,7 @@ function migrateDiscoveryFields(config: ExtensionConfig): { healed: string[]; st
     if (p.modelsUrl) continue;       // already set (fresh login or manual edit) — never clobber
 
     const values = recoverPlaceholders(tpl.baseUrl, p.baseUrl);
-    if (!values) { stale.push(p.displayName); continue; }
+    if (!values) { stale.push(key); continue; }
 
     p.modelsUrl = applyPlaceholders(tpl.modelsUrl, values);
     p.modelsIdField = tpl.modelsIdField;
@@ -493,8 +503,10 @@ async function fetchModels(
     else if (Array.isArray(obj.result)) raw = obj.result as RawModel[];
   }
   if (!raw) {
+    // `url` may be an override (e.g. /catalog/models, /ai/models/search), so
+    // keep the wording generic rather than referring specifically to /models.
     throw new Error(
-      `Unexpected /models payload shape from ${url} ` +
+      `Unexpected model catalog payload shape from ${url} ` +
       `(expected an array or an object with a "data" or "result" array).`
     );
   }
@@ -506,8 +518,14 @@ async function fetchModels(
       return taskName.toLowerCase() === keepTask.toLowerCase();
     })
     .map((m) => {
-      const id = (m as Record<string, unknown>)[idField] as string | undefined;
-      return { id: id ?? "", contextWindow: m.context_window, maxTokens: m.max_tokens };
+      // Coerce the id field defensively: some upstreams expose a numeric id,
+      // and storing a non-string would break the localeCompare sort below.
+      const rawId = (m as Record<string, unknown>)[idField];
+      const id =
+        typeof rawId === "string" ? rawId :
+        typeof rawId === "number" ? String(rawId) :
+        "";
+      return { id, contextWindow: m.context_window, maxTokens: m.max_tokens };
     })
     .filter((m) => Boolean(m.id))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -615,12 +633,19 @@ export default async function (pi: ExtensionAPI) {
         "warning"
       );
     }
-    if (stale.length > 0) {
+    // Warn about stale providers only once: re-notifying on every session_start
+    // while the config stays stale would be noise. Persist the flag so the
+    // notice survives restarts.
+    const toNotify = stale.filter((key) => !config.providers[key]?.staleNotified);
+    if (toNotify.length > 0) {
+      const names = toNotify.map((key) => config.providers[key].displayName);
       ctx.ui.notify(
-        `OpenAI-compat: ${stale.join(", ")} ${stale.length === 1 ? "has" : "have"} an out-of-date ` +
+        `OpenAI-compat: ${names.join(", ")} ${names.length === 1 ? "has" : "have"} an out-of-date ` +
         `base URL — run /compat-login to update (its endpoint changed and can't be migrated automatically).`,
         "warning"
       );
+      for (const key of toNotify) config.providers[key].staleNotified = true;
+      saveConfig(config);
     }
   });
 
@@ -807,10 +832,17 @@ export default async function (pi: ExtensionAPI) {
         keys = providerKeys;
       } else {
         const ALL = "All providers";
-        const labels = [ALL, ...providerKeys.map((k) => config.providers[k].displayName)];
+        // Embed the internal provider key in each label so duplicate
+        // displayNames (or a provider literally named "All providers") can't
+        // collide with each other or the special "All providers" option.
+        const options = providerKeys.map((k) => ({
+          key: k,
+          label: `${config.providers[k].displayName} [${k}]`,
+        }));
+        const labels = [ALL, ...options.map((o) => o.label)];
         const chosen = await ctx.ui.select("Refresh which provider?", labels);
         if (!chosen) { ctx.ui.notify("Cancelled.", "info"); return; }
-        keys = chosen === ALL ? providerKeys : [providerKeys[labels.indexOf(chosen) - 1]];
+        keys = chosen === ALL ? providerKeys : [options[labels.indexOf(chosen) - 1].key];
       }
 
       const refreshed: string[] = [];

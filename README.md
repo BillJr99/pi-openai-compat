@@ -311,11 +311,16 @@ parse error.
 **Cloudflare AI Gateway returns 401 Unauthorized**
 Check both: (1) the API token has `AI Gateway: Run` *and* `Workers AI: Read`
 under "Permissions", scoped to the correct account; and (2) the gateway slug
-in the URL actually exists under that account — list with
-`curl https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/ai-gateway/gateways
--H "Authorization: Bearer $TOKEN"`. An empty `result` array means the gateway
-isn't there (you may need to create it in **dash.cloudflare.com → AI → AI
-Gateway**, or you're querying the wrong account).
+in the URL actually exists under that account — list them with:
+
+```bash
+curl https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/ai-gateway/gateways \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+An empty `result` array means the gateway isn't there (you may need to create it
+in **dash.cloudflare.com → AI → AI Gateway**, or you're querying the wrong
+account).
 
 **No models appear after login**
 For Ollama: pull at least one model first (`ollama pull llama3`).
