@@ -49,24 +49,34 @@ If pi is already running when you install, type `/reload` first.
 | **Venice AI** | `https://api.venice.ai/api/v1` | API key from venice.ai/settings/api |
 | **Fireworks AI** | `https://api.fireworks.ai/inference/v1` | API key from fireworks.ai/account/api-keys |
 | **Together AI** | `https://api.together.xyz/v1` | API key from api.together.ai/settings/api-keys |
-| **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com |
-| **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com |
+| **GitHub Models** | `https://models.github.ai/inference` | GitHub PAT — fine-grained, `Models → read` |
+| **Cloudflare Workers AI** | `https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1` | API token from dash.cloudflare.com (`Workers AI: Read`) |
+| **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com (`AI Gateway: Run` + `Workers AI: Read`) |
 | **Vercel AI Gateway** | `https://ai-gateway.vercel.sh/v1` | API key from vercel.com |
 | **OpenCode Zen** | `https://opencode.ai/zen/v1` | API key from opencode.ai |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **Custom** | Any URL you supply | Optional bearer token |
 
-> **Providers with built-in fallback model lists (as of May 2026)**
-> Some providers do not support `GET /v1/models` or return a non-JSON response.
-> For these, the extension substitutes a built-in list and shows a warning during
-> `/compat-login`.
+> **Providers whose model catalog lives at a non-standard `/models` path (as of June 2026)**
+> Some providers don't return models at `<base_url>/models`. The extension
+> handles them in one of two ways:
 >
-> | Provider | Reason |
-> |---|---|
-> | **Cloudflare Workers AI** | Returns HTTP 405 — method not supported |
-> | **Cloudflare AI Gateway** | Returns HTTP 401 — no anonymous model enumeration |
-> | **Hugging Face** | Returns HTML rather than JSON for `/v1/models` |
+> 1. **Live discovery via a per-template URL override** (`modelsUrl`,
+>    `modelsIdField`, `modelsKeepTask` on the template). Used for **GitHub
+>    Models** and **Cloudflare Workers AI** — `/compat-login` fetches the real
+>    catalog and registers actual current models, not a curated guess.
+> 2. **Built-in fallback list** when no working catalog endpoint exists. Used
+>    when discovery fails or when the upstream simply has no `/models` at all
+>    (e.g. **Hugging Face** returns HTML, **Cloudflare AI Gateway** has no
+>    catalog endpoint).
+>
+> | Provider | Default `/models` symptom | Handling |
+> |---|---|---|
+> | **GitHub Models** | HTTP 404 at `<base_url>/models` (catalog is at `/catalog/models`, not `/inference/models`) | Live discovery — `modelsUrl: https://models.github.ai/catalog/models` |
+> | **Cloudflare Workers AI** | HTTP 405 (no `GET /v1/models`; real catalog at `/ai/models/search`, id field is `name`, mixed task types) | Live discovery — `modelsUrl: …/ai/models/search`, `modelsIdField: name`, `modelsKeepTask: "Text Generation"` |
+> | **Cloudflare AI Gateway** | HTTP 401 (token missing `AI Gateway: Run`) or HTTP 400 *"Please configure AI Gateway"* (gateway slug doesn't exist, or the upstream isn't configured on it) | Built-in fallback list |
+> | **Hugging Face** | Returns HTML rather than JSON | Built-in fallback list |
 
 ---
 
@@ -272,6 +282,19 @@ pi remove  npm:@billjr99/pi-openai-compat          # uninstall
 Verify the base URL does not have a trailing slash and ends with `/v1`.
 Confirm the API key is correct and has model-access permissions.
 For Ollama: ensure `ollama serve` is running.
+For self-hosted Open WebUI: the OpenAI-compatible API is under `/api/v1`, not
+the SPA root — e.g. `https://your-host/api/v1`, not `https://your-host`.
+Hitting the root returns the HTML SPA and `/compat-login` fails with a JSON
+parse error.
+
+**Cloudflare AI Gateway returns 401 Unauthorized**
+Check both: (1) the API token has `AI Gateway: Run` *and* `Workers AI: Read`
+under "Permissions", scoped to the correct account; and (2) the gateway slug
+in the URL actually exists under that account — list with
+`curl https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/ai-gateway/gateways
+-H "Authorization: Bearer $TOKEN"`. An empty `result` array means the gateway
+isn't there (you may need to create it in **dash.cloudflare.com → AI → AI
+Gateway**, or you're querying the wrong account).
 
 **No models appear after login**
 For Ollama: pull at least one model first (`ollama pull llama3`).
