@@ -82,7 +82,7 @@ If pi is already running when you install, type `/reload` first.
 
 ## Commands
 
-Only two commands are needed.
+Three commands are available; `/compat-login` is the only one you need to get started.
 
 ### `/compat-login`
 
@@ -97,6 +97,18 @@ Walks you through a short wizard:
 After login, the provider's models appear in pi's `/model` command and
 `Ctrl+L` picker immediately.  You can run `/compat-login` again to add a
 second provider — all providers are active simultaneously.
+
+### `/compat-refresh`
+
+Re-fetches the model list for an already-registered provider, reusing the
+saved base URL, API key, and discovery settings — no need to re-enter URLs,
+keys, or account IDs. Use it to pick up models a provider has added (or
+dropped) since you logged in, without restarting your session.
+
+If you have multiple providers registered, you are asked which one to refresh
+(or choose **All providers**); with a single provider it refreshes directly.
+A failed or empty refresh leaves the existing model list untouched, so a flaky
+network call can't blank out a working provider.
 
 ### `/compat-logout`
 

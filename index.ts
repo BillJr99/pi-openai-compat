@@ -8,8 +8,9 @@
  *   - Every provider saved in config.json is registered automatically at
  *     startup.  The factory is async so pi waits for registration to complete
  *     before showing the model list — no session_start delay.
- *   - /compat-login  adds a provider (fetches fresh model list, registers).
- *   - /compat-logout removes a provider (unregisters, restores previous model).
+ *   - /compat-login   adds a provider (fetches fresh model list, registers).
+ *   - /compat-refresh re-fetches the model list for a registered provider.
+ *   - /compat-logout  removes a provider (unregisters, restores previous model).
  *   - No activeProviders list — presence in config.providers means registered.
  *
  * Config: ~/.config/pi-openai-compat/config.json
@@ -687,6 +688,72 @@ export default async function (pi: ExtensionAPI) {
         `${tpl.displayName} registered — ${models.length} model(s) added to /model.`,
         "success"
       );
+    },
+  });
+
+  // ── /compat-refresh ──────────────────────────────────────────────────────────
+  // Force a re-fetch of an already-registered provider's model list, reusing
+  // the persisted baseUrl/apiKey and discovery overrides — no need to re-enter
+  // URLs, keys, or account IDs like /compat-login. Picks up newly added (or
+  // dropped) upstream models without restarting the session.
+  pi.registerCommand("compat-refresh", {
+    description: "Re-fetch the model list for a registered OpenAI-compatible provider",
+    handler: async (_args, ctx) => {
+      const providerKeys = Object.keys(config.providers);
+      if (!providerKeys.length) {
+        ctx.ui.notify("No compat providers are registered. Run /compat-login first.", "info");
+        return;
+      }
+
+      // Choose which provider(s) to refresh. With one provider, refresh it
+      // directly; otherwise offer each by name plus an "All providers" option.
+      let keys: string[];
+      if (providerKeys.length === 1) {
+        keys = providerKeys;
+      } else {
+        const ALL = "All providers";
+        const labels = [ALL, ...providerKeys.map((k) => config.providers[k].displayName)];
+        const chosen = await ctx.ui.select("Refresh which provider?", labels);
+        if (!chosen) { ctx.ui.notify("Cancelled.", "info"); return; }
+        keys = chosen === ALL ? providerKeys : [providerKeys[labels.indexOf(chosen) - 1]];
+      }
+
+      const refreshed: string[] = [];
+      const failed: string[] = [];
+      for (const key of keys) {
+        const p = config.providers[key];
+        ctx.ui.notify(`Refreshing ${p.displayName} …`, "info");
+        try {
+          const models = await fetchModels(p.baseUrl, p.apiKey, {
+            url: p.modelsUrl,
+            idField: p.modelsIdField,
+            keepTask: p.modelsKeepTask,
+          });
+          if (models.length > 0) {
+            // Only overwrite the cache on a successful, non-empty fetch — a
+            // flaky refresh must never blank out a working provider's models.
+            p.cachedModels = models;
+            saveConfig(config);
+            registerProvider(pi, key, p);
+            refreshed.push(`${p.displayName} (${models.length})`);
+          } else {
+            failed.push(p.displayName);
+          }
+        } catch {
+          failed.push(p.displayName);
+        }
+      }
+
+      if (refreshed.length > 0) {
+        ctx.ui.notify(`Refreshed: ${refreshed.join(", ")}.`, "success");
+      }
+      if (failed.length > 0) {
+        ctx.ui.notify(
+          `Could not refresh ${failed.join(", ")} — kept the existing model list. ` +
+          `Run /compat-login if the provider's URL or key changed.`,
+          "warning"
+        );
+      }
     },
   });
 
