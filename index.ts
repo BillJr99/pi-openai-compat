@@ -350,6 +350,84 @@ function saveConfig(config: ExtensionConfig): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Discovery-field auto-heal
+//
+// Providers saved before model-discovery overrides existed (modelsUrl/
+// modelsIdField/modelsKeepTask) have none on their config, so /compat-refresh
+// and the session_start rehydrate hit the broken default <baseUrl>/models path
+// (e.g. Cloudflare Workers AI's 405). When a provider's saved baseUrl still
+// matches its template — so we can recover any account-id/slug placeholders —
+// we backfill the discovery fields from the template. Providers whose baseUrl
+// no longer matches the template (e.g. GitHub Models' retired Azure host) can't
+// be healed safely and are reported so the user can re-run /compat-login.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Placeholders that may appear in a template's baseUrl / modelsUrl. */
+const URL_PLACEHOLDERS = ["YOUR_ACCOUNT_ID", "YOUR_GATEWAY_SLUG", "YOUR_PROVIDER"];
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Recover placeholder values by matching a saved URL against a template URL.
+ * Returns a map (possibly empty when the template has no placeholders) when the
+ * saved URL is consistent with the template, or null when it isn't — which we
+ * treat as "this provider can't be healed automatically".
+ */
+function recoverPlaceholders(templateUrl: string, savedUrl: string): Record<string, string> | null {
+  const order: string[] = [];
+  const placeholderRe = new RegExp(URL_PLACEHOLDERS.join("|"), "g");
+  let source = "^";
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = placeholderRe.exec(templateUrl)) !== null) {
+    source += escapeRegex(templateUrl.slice(lastIndex, m.index)) + "([^/]+)";
+    order.push(m[0]);
+    lastIndex = m.index + m[0].length;
+  }
+  source += escapeRegex(templateUrl.slice(lastIndex)) + "$";
+
+  const match = new RegExp(source).exec(savedUrl);
+  if (!match) return null;
+  const out: Record<string, string> = {};
+  order.forEach((name, i) => { out[name] = match[i + 1]; });
+  return out;
+}
+
+function applyPlaceholders(url: string, values: Record<string, string>): string {
+  let out = url;
+  for (const [name, value] of Object.entries(values)) out = out.split(name).join(value);
+  return out;
+}
+
+/**
+ * Backfill missing discovery fields on saved providers from their template.
+ * Mutates `config` in place; the caller is responsible for persisting when
+ * `healed` is non-empty. `stale` lists providers that need a manual re-login.
+ */
+function migrateDiscoveryFields(config: ExtensionConfig): { healed: string[]; stale: string[] } {
+  const healed: string[] = [];
+  const stale: string[] = [];
+
+  for (const [key, p] of Object.entries(config.providers)) {
+    const tpl = TEMPLATES[key];
+    if (!tpl?.modelsUrl) continue;   // no matching template, or template needs no overrides
+    if (p.modelsUrl) continue;       // already set (fresh login or manual edit) — never clobber
+
+    const values = recoverPlaceholders(tpl.baseUrl, p.baseUrl);
+    if (!values) { stale.push(p.displayName); continue; }
+
+    p.modelsUrl = applyPlaceholders(tpl.modelsUrl, values);
+    p.modelsIdField = tpl.modelsIdField;
+    p.modelsKeepTask = tpl.modelsKeepTask;
+    healed.push(p.displayName);
+  }
+
+  return { healed, stale };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Networking
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -472,6 +550,11 @@ function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): voi
 export default async function (pi: ExtensionAPI) {
   let config = loadConfig();
 
+  // Self-heal older configs: backfill discovery fields (modelsUrl/idField/
+  // keepTask) we can derive from the template without prompting. Persist once
+  // so /compat-refresh and the session_start rehydrate use the fixed values.
+  if (migrateDiscoveryFields(config).healed.length > 0) saveConfig(config);
+
   // Register all saved providers immediately using cached model lists.
   // The factory is async, so pi waits for this to finish before startup
   // continues — providers are visible in /model from the very first render.
@@ -486,6 +569,11 @@ export default async function (pi: ExtensionAPI) {
   // any providers whose cache was empty at factory time.
   pi.on("session_start", async (_event, ctx) => {
     config = loadConfig();
+
+    // Self-heal what we can (silently), and collect providers whose saved
+    // baseUrl no longer matches the template — those need a manual re-login.
+    const { healed, stale } = migrateDiscoveryFields(config);
+    if (healed.length > 0) saveConfig(config);
 
     const registered: string[] = [];
     const failed: string[] = [];
@@ -524,6 +612,13 @@ export default async function (pi: ExtensionAPI) {
     if (failed.length > 0) {
       ctx.ui.notify(
         `OpenAI-compat: could not reach ${failed.join(", ")} — run /compat-login to refresh.`,
+        "warning"
+      );
+    }
+    if (stale.length > 0) {
+      ctx.ui.notify(
+        `OpenAI-compat: ${stale.join(", ")} ${stale.length === 1 ? "has" : "have"} an out-of-date ` +
+        `base URL — run /compat-login to update (its endpoint changed and can't be migrated automatically).`,
         "warning"
       );
     }

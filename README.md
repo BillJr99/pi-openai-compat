@@ -77,6 +77,15 @@ If pi is already running when you install, type `/reload` first.
 > | **Cloudflare Workers AI** | HTTP 405 (no `GET /v1/models`; real catalog at `/ai/models/search`, id field is `name`, mixed task types) | Live discovery — `modelsUrl: …/ai/models/search`, `modelsIdField: name`, `modelsKeepTask: "Text Generation"` |
 > | **Cloudflare AI Gateway** | HTTP 401 (token missing `AI Gateway: Run`) or HTTP 400 *"Please configure AI Gateway"* (gateway slug doesn't exist, or the upstream isn't configured on it) | Built-in fallback list |
 > | **Hugging Face** | Returns HTML rather than JSON | Built-in fallback list |
+>
+> **Auto-heal for older configs:** if you logged in before live discovery
+> existed, your saved provider is missing these `modelsUrl`/`modelsIdField`/
+> `modelsKeepTask` fields. On startup the extension backfills them from the
+> template whenever it can do so without prompting — i.e. when your saved base
+> URL still matches the template (Cloudflare Workers AI). When the base URL
+> itself changed (e.g. GitHub Models' retired `models.inference.ai.azure.com`
+> host), it can't be migrated silently and you'll get a one-time notice to run
+> `/compat-login`.
 
 ---
 
