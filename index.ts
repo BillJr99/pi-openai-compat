@@ -35,6 +35,14 @@ interface ProviderConfig {
   baseUrl: string;
   apiKey: string | null;
   cachedModels: CachedModel[];
+  // Optional model-discovery overrides for providers whose /models endpoint
+  // lives at a non-standard path / shape (e.g. GitHub Models' /catalog/models,
+  // Cloudflare Workers AI's /ai/models/search). Persisted on the provider so
+  // session_start re-fetches (when cachedModels is empty) use the override
+  // rather than the broken default <baseUrl>/models path.
+  modelsUrl?: string;
+  modelsIdField?: string;
+  modelsKeepTask?: string;
 }
 
 interface ExtensionConfig {
@@ -47,6 +55,15 @@ interface ExtensionConfig {
 interface OpenAIModelsResponse {
   data: Array<{ id: string; context_window?: number; max_tokens?: number }>;
 }
+
+/** Loose shape for a single entry in any /models response. */
+type RawModel = {
+  id?: string;
+  name?: string;
+  context_window?: number;
+  max_tokens?: number;
+  task?: { name?: string };
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider templates
@@ -64,6 +81,17 @@ const TEMPLATES: Record<string, {
   fallbackModels?: string[];
   /** Where to obtain the API key; presence implies the key is required. */
   keyHint?: string;
+  /**
+   * Optional model-discovery overrides for providers whose /models endpoint
+   * lives at a non-standard path / shape. May contain the same placeholders
+   * as baseUrl (YOUR_ACCOUNT_ID, YOUR_GATEWAY_SLUG, YOUR_PROVIDER); they are
+   * substituted alongside the baseUrl substitution in /compat-login.
+   */
+  modelsUrl?: string;
+  /** Field on each model entry that carries the upstream id (default "id"). */
+  modelsIdField?: string;
+  /** Keep only models whose task.name matches this string (case-insensitive). */
+  modelsKeepTask?: string;
 }> = {
   openrouter: {
     displayName: "OpenRouter",
@@ -97,9 +125,13 @@ const TEMPLATES: Record<string, {
   },
   github_models: {
     displayName: "GitHub Models",
-    baseUrl: "https://models.inference.ai.azure.com",
+    // The legacy Azure endpoint (models.inference.ai.azure.com) was retired.
+    // Chat now lives under /inference, and the catalog under /catalog/models
+    // on the same host — different path entirely, hence the modelsUrl override.
+    baseUrl: "https://models.github.ai/inference",
     keyless: false,
-    keyHint: "github.com/settings/tokens",
+    keyHint: "github.com/settings/tokens (fine-grained: Models → read)",
+    modelsUrl: "https://models.github.ai/catalog/models",
   },
   sambanova: {
     displayName: "SambaNova",
@@ -124,8 +156,14 @@ const TEMPLATES: Record<string, {
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1",
     keyless: false,
     promptUrl: true,
-    keyHint: "dash.cloudflare.com → My Profile → API Tokens",
-    // Cloudflare Workers AI returns 405 for GET /v1/models; use a curated list.
+    keyHint: "dash.cloudflare.com → My Profile → API Tokens (`Workers AI: Read`)",
+    // The OpenAI-compat base /ai/v1 returns 405 for GET /models. The real
+    // catalog lives at /ai/models/search, keys ids in "name" (reserving "id"
+    // for an internal UUID), and mixes Text Generation with embeddings and
+    // image tasks — so we filter by task.name.
+    modelsUrl: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/models/search?per_page=100",
+    modelsIdField: "name",
+    modelsKeepTask: "Text Generation",
     fallbackModels: [
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -138,10 +176,16 @@ const TEMPLATES: Record<string, {
     displayName: "Cloudflare AI Gateway",
     // YOUR_PROVIDER is the upstream slug (e.g. "workers-ai", "openai"). /v1 is
     // appended so that fetchModels and chat completions hit the correct path.
+    // Common failure modes:
+    //   - 401 "Unauthorized": the token lacks `AI Gateway: Run` permission,
+    //     or the gateway has Authenticated Gateway enabled (requires a
+    //     separate cf-aig-authorization header, not yet supported here).
+    //   - 400 "Please configure AI Gateway": the gateway slug doesn't exist
+    //     under this account, or the upstream provider isn't configured on it.
     baseUrl: "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_SLUG/YOUR_PROVIDER/v1",
     keyless: false,
     promptUrl: true,
-    keyHint: "dash.cloudflare.com → My Profile → API Tokens",
+    keyHint: "dash.cloudflare.com → My Profile → API Tokens (`AI Gateway: Run` + `Workers AI: Read`)",
     fallbackModels: [
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -323,22 +367,69 @@ function isLocalUrl(url: string): boolean {
   }
 }
 
-async function fetchModels(baseUrl: string, apiKey: string | null): Promise<CachedModel[]> {
-  const url = `${baseUrl.replace(/\/+$/, "")}/models`;
+/** Optional per-provider overrides controlling how /models is fetched. */
+interface FetchOverrides {
+  /** Full URL to fetch instead of `<baseUrl>/models`. */
+  url?: string;
+  /** Field on each entry that holds the upstream id (default `id`). */
+  idField?: string;
+  /** Keep only entries whose `task.name` matches (case-insensitive). */
+  keepTask?: string;
+}
+
+async function fetchModels(
+  baseUrl: string,
+  apiKey: string | null,
+  overrides: FetchOverrides = {},
+): Promise<CachedModel[]> {
+  // Honor a per-provider override (e.g. GitHub Models' /catalog/models lives
+  // on a different path than its inference endpoint; Cloudflare Workers AI's
+  // catalog is at /ai/models/search). Fall back to <baseUrl>/models otherwise.
+  const url = overrides.url ?? `${baseUrl.replace(/\/+$/, "")}/models`;
+  const idField = overrides.idField ?? "id";
+  const keepTask = overrides.keepTask;
+
   const headers: Record<string, string> = { Accept: "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
   const resp = await fetch(url, { headers });
   if (!resp.ok) {
+    // The Authorization header is never echoed here, so the error body is
+    // safe to surface even though we include the upstream's full response.
     const body = await resp.text().catch(() => "");
     throw new Error(`HTTP ${resp.status} from ${url}: ${body}`);
   }
 
-  const json = (await resp.json()) as OpenAIModelsResponse;
-  if (!Array.isArray(json?.data)) throw new Error(`Unexpected response from ${url}`);
+  // Normalize the various shapes /models can return:
+  //   - OpenAI style:                  {"data": [...]}
+  //   - Cloudflare / some gateways:    {"result": [...]}
+  //   - Together (and a few others):   [...]   (bare JSON array)
+  const json = (await resp.json()) as unknown;
+  let raw: RawModel[] | undefined;
+  if (Array.isArray(json)) {
+    raw = json as RawModel[];
+  } else if (json && typeof json === "object") {
+    const obj = json as { data?: unknown; result?: unknown };
+    if (Array.isArray(obj.data)) raw = obj.data as RawModel[];
+    else if (Array.isArray(obj.result)) raw = obj.result as RawModel[];
+  }
+  if (!raw) {
+    throw new Error(
+      `Unexpected /models payload shape from ${url} ` +
+      `(expected an array or an object with a "data" or "result" array).`
+    );
+  }
 
-  return json.data
-    .map((m) => ({ id: m.id, contextWindow: m.context_window, maxTokens: m.max_tokens }))
+  return raw
+    .filter((m) => {
+      if (keepTask === undefined) return true;
+      const taskName = m.task?.name ?? "";
+      return taskName.toLowerCase() === keepTask.toLowerCase();
+    })
+    .map((m) => {
+      const id = (m as Record<string, unknown>)[idField] as string | undefined;
+      return { id: id ?? "", contextWindow: m.context_window, maxTokens: m.max_tokens };
+    })
     .filter((m) => Boolean(m.id))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -404,9 +495,14 @@ export default async function (pi: ExtensionAPI) {
         registerProvider(pi, key, p);
         registered.push(p.displayName);
       } else {
-        // Cache is empty (e.g. migrated from older config).  Try a live fetch.
+        // Cache is empty (e.g. migrated from older config).  Try a live fetch,
+        // honoring any per-provider discovery overrides stored on the config.
         try {
-          const models = await fetchModels(p.baseUrl, p.apiKey);
+          const models = await fetchModels(p.baseUrl, p.apiKey, {
+            url: p.modelsUrl,
+            idField: p.modelsIdField,
+            keepTask: p.modelsKeepTask,
+          });
           if (models.length > 0) {
             p.cachedModels = models;
             saveConfig(config);
@@ -456,6 +552,11 @@ export default async function (pi: ExtensionAPI) {
 
       // Step 2 — base URL
       let baseUrl = tpl.baseUrl;
+      // modelsUrl tracks the discovery URL through the same placeholder
+      // substitutions baseUrl goes through, so providers that put the model
+      // catalog on a different path (GitHub Models, Cloudflare Workers AI)
+      // get a fully-resolved URL by the time we call fetchModels.
+      let modelsUrl: string | undefined = tpl.modelsUrl;
       if (key === "cloudflare_workers") {
         const entered = await ctx.ui.input(
           "Account ID",
@@ -466,6 +567,7 @@ export default async function (pi: ExtensionAPI) {
         const accountId = entered.trim();
         if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
         baseUrl = tpl.baseUrl.replace("YOUR_ACCOUNT_ID", accountId);
+        if (modelsUrl) modelsUrl = modelsUrl.replace("YOUR_ACCOUNT_ID", accountId);
       } else if (key === "cloudflare_ai_gateway") {
         const accountIdInput = await ctx.ui.input(
           "Account ID",
@@ -497,6 +599,12 @@ export default async function (pi: ExtensionAPI) {
           .replace("YOUR_ACCOUNT_ID", accountId)
           .replace("YOUR_GATEWAY_SLUG", gatewaySlug)
           .replace("YOUR_PROVIDER", provider);
+        if (modelsUrl) {
+          modelsUrl = modelsUrl
+            .replace("YOUR_ACCOUNT_ID", accountId)
+            .replace("YOUR_GATEWAY_SLUG", gatewaySlug)
+            .replace("YOUR_PROVIDER", provider);
+        }
       } else if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
         const prompt = isLocalUrl(defaultUrl)
@@ -523,7 +631,11 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.notify(`Connecting to ${baseUrl} …`, "info");
       let models: CachedModel[];
       try {
-        models = await fetchModels(baseUrl, apiKey);
+        models = await fetchModels(baseUrl, apiKey, {
+          url: modelsUrl,
+          idField: tpl.modelsIdField,
+          keepTask: tpl.modelsKeepTask,
+        });
       } catch (err) {
         if (tpl.fallbackModels && tpl.fallbackModels.length > 0) {
           ctx.ui.notify(
@@ -555,12 +667,18 @@ export default async function (pi: ExtensionAPI) {
         }
       }
 
-      // Step 5 — save to config and register with pi
+      // Step 5 — save to config and register with pi.
+      // The discovery overrides are persisted so session_start can re-fetch
+      // correctly when cachedModels is empty (without them, the rehydrate
+      // path would hit <baseUrl>/models and 404 for these providers).
       config.providers[key] = {
         displayName: tpl.displayName,
         baseUrl,
         apiKey,
         cachedModels: models,
+        modelsUrl,
+        modelsIdField: tpl.modelsIdField,
+        modelsKeepTask: tpl.modelsKeepTask,
       };
       saveConfig(config);
       registerProvider(pi, key, config.providers[key]);
