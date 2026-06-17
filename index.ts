@@ -49,11 +49,11 @@ interface ProviderConfig {
   // only once rather than on every session_start while the config stays stale.
   staleNotified?: boolean;
   // When true, rewrite the FIRST "__" of every model id to "/" before
-  // registering with pi. pi rejects model ids containing "__", so providers like
-  // llmproxy (which uses "provider__model" ids) would otherwise have their entire
-  // catalog dropped from /model. The rewrite is the inverse of llmproxy's own
-  // request-side canonicalization, so requests still round-trip. Defaults false;
-  // the wizard turns it on only for the llmproxy template.
+  // registering with pi, so ids from providers that use a "provider__model"
+  // convention (e.g. llmproxy) display in the more familiar "provider/model"
+  // slash form. This is a display-only convenience: such upstreams canonicalize
+  // the slash form back to "__" on each request, so requests still round-trip.
+  // Defaults false; the wizard turns it on only for the llmproxy template.
   rewriteDoubleUnderscore?: boolean;
 }
 
@@ -105,9 +105,10 @@ const TEMPLATES: Record<string, {
   /** Keep only models whose task.name matches this string (case-insensitive). */
   modelsKeepTask?: string;
   /**
-   * Rewrite the first "__" of each model id to "/" before registering with pi.
-   * pi drops model ids containing "__", so this is required for llmproxy (whose
-   * ids are "provider__model"). Default false; set true only where pi needs it.
+   * Rewrite the first "__" of each model id to "/" before registering with pi,
+   * for display compatibility — ids from "provider__model" upstreams (e.g.
+   * llmproxy) then show in the familiar "provider/model" slash form. Display-only;
+   * default false; set true where you want the slash-form presentation.
    */
   rewriteDoubleUnderscore?: boolean;
 }> = {
@@ -302,8 +303,8 @@ const TEMPLATES: Record<string, {
     keyless: true,
     promptUrl: true,
     // llmproxy advertises "provider__model" ids (and virtuals like
-    // "llmproxy__free"). pi rejects "__" in model ids, so rewrite the first
-    // "__" to "/" here; llmproxy canonicalizes the slash form back on requests.
+    // "llmproxy__free"). Rewrite the first "__" to "/" here so they display in
+    // the familiar slash form; llmproxy canonicalizes it back on requests.
     rewriteDoubleUnderscore: true,
   },
   vercel: {
