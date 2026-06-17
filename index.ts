@@ -48,6 +48,13 @@ interface ProviderConfig {
   // matches its template and can't be auto-migrated, so the notice is shown
   // only once rather than on every session_start while the config stays stale.
   staleNotified?: boolean;
+  // When true, rewrite the FIRST "__" of every model id to "/" before
+  // registering with pi. pi rejects model ids containing "__", so providers like
+  // llmproxy (which uses "provider__model" ids) would otherwise have their entire
+  // catalog dropped from /model. The rewrite is the inverse of llmproxy's own
+  // request-side canonicalization, so requests still round-trip. Defaults false;
+  // the wizard turns it on only for the llmproxy template.
+  rewriteDoubleUnderscore?: boolean;
 }
 
 interface ExtensionConfig {
@@ -97,6 +104,12 @@ const TEMPLATES: Record<string, {
   modelsIdField?: string;
   /** Keep only models whose task.name matches this string (case-insensitive). */
   modelsKeepTask?: string;
+  /**
+   * Rewrite the first "__" of each model id to "/" before registering with pi.
+   * pi drops model ids containing "__", so this is required for llmproxy (whose
+   * ids are "provider__model"). Default false; set true only where pi needs it.
+   */
+  rewriteDoubleUnderscore?: boolean;
 }> = {
   openrouter: {
     displayName: "OpenRouter",
@@ -288,6 +301,10 @@ const TEMPLATES: Record<string, {
     baseUrl: "http://localhost:8080/v1",
     keyless: true,
     promptUrl: true,
+    // llmproxy advertises "provider__model" ids (and virtuals like
+    // "llmproxy__free"). pi rejects "__" in model ids, so rewrite the first
+    // "__" to "/" here; llmproxy canonicalizes the slash form back on requests.
+    rewriteDoubleUnderscore: true,
   },
   vercel: {
     displayName: "Vercel AI Gateway",
@@ -535,16 +552,31 @@ async function fetchModels(
 // Provider registration helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildProviderModels(models: CachedModel[]) {
-  return models.map((m) => ({
-    id: m.id,
-    name: m.id,
-    reasoning: false,
-    input: ["text"] as string[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: m.contextWindow ?? 128_000,
-    maxTokens: m.maxTokens ?? 4_096,
-  }));
+/**
+ * Rewrite the FIRST "__" of a model id to "/". Only the first occurrence is
+ * touched: the provider/virtual segment that precedes it never contains "__" or
+ * "/", so this is the exact inverse of the slash→"__" canonicalization llmproxy
+ * applies on the request side, keeping ids round-trippable. Ids without "__" are
+ * returned unchanged.
+ */
+function rewriteFirstDoubleUnderscore(id: string): string {
+  const i = id.indexOf("__");
+  return i === -1 ? id : `${id.slice(0, i)}/${id.slice(i + 2)}`;
+}
+
+function buildProviderModels(models: CachedModel[], rewriteDoubleUnderscore = false) {
+  return models.map((m) => {
+    const id = rewriteDoubleUnderscore ? rewriteFirstDoubleUnderscore(m.id) : m.id;
+    return {
+      id,
+      name: id,
+      reasoning: false,
+      input: ["text"] as string[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: m.contextWindow ?? 128_000,
+      maxTokens: m.maxTokens ?? 4_096,
+    };
+  });
 }
 
 function compatKey(key: string): string {
@@ -552,12 +584,16 @@ function compatKey(key: string): string {
 }
 
 function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): void {
+  // Honor the persisted per-provider flag; fall back to the template default for
+  // this key so providers logged in before the flag existed (e.g. an existing
+  // llmproxy provider) still get the rewrite without a re-login.
+  const rewrite = p.rewriteDoubleUnderscore ?? TEMPLATES[key]?.rewriteDoubleUnderscore ?? false;
   pi.registerProvider(compatKey(key), {
     name: `compat/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
     apiKey: p.apiKey ?? (isLocalUrl(p.baseUrl) ? "local" : ""),
     api: "openai-completions" as const,
-    models: buildProviderModels(p.cachedModels),
+    models: buildProviderModels(p.cachedModels, rewrite),
   });
 }
 
@@ -800,6 +836,7 @@ export default async function (pi: ExtensionAPI) {
         modelsUrl,
         modelsIdField: tpl.modelsIdField,
         modelsKeepTask: tpl.modelsKeepTask,
+        rewriteDoubleUnderscore: tpl.rewriteDoubleUnderscore,
       };
       saveConfig(config);
       registerProvider(pi, key, config.providers[key]);
