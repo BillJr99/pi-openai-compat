@@ -59,26 +59,6 @@ If pi is already running when you install, type `/reload` first.
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
 | **Custom** | Any URL you supply | Optional bearer token |
 
-> **The `__` → `/` model-id rewrite (display compatibility).**
-> Some providers advertise model ids in a `provider__model` form. For example,
-> [llmproxy](https://github.com/BillJr99/llmproxy) exposes ids like
-> `openrouter__gpt-4` and virtual models such as `llmproxy__free` and
-> `llmproxy__loadbalanced`. The extension can optionally rewrite the first `__`
-> of each id to `/` (e.g. `openrouter__gpt-4` → `openrouter/gpt-4`,
-> `llmproxy__free` → `llmproxy/free`) before registering with pi, so the ids
-> display in the more familiar `provider/model` slash form. Upstreams that use
-> the `__` convention canonicalize the slash form back to `__` on each request,
-> so routing still works.
->
-> This is a presentation-only convenience controlled by a per-provider config
-> field (`rewriteDoubleUnderscore`, default **false**). It is enabled
-> automatically for the llmproxy template purely for display consistency — other
-> providers are unaffected, and you can turn it on or off freely. If you added a
-> provider as a **Custom** endpoint and want the slash-form display, set
-> `"rewriteDoubleUnderscore": true` on that provider in
-> `~/.config/pi-openai-compat/config.json` (or re-run `/compat-login` and pick a
-> template that enables it). Leaving it off keeps the original `__` ids.
-
 > **Providers whose model catalog lives at a non-standard `/models` path (as of June 2026)**
 > Some providers don't return models at `<base_url>/models`. The extension
 > handles them in one of two ways:
@@ -353,9 +333,6 @@ The usual cause is a **scoped or restricted API key/account** — the catalog
 endpoint advertises the full model list, but your credentials are only entitled
 to a subset, so pi only surfaces the ones you can actually use. Check whether your
 key is limited to specific models or a free tier on the provider's dashboard.
-(This is unrelated to the `__` → `/` rewrite, which is a display-only convenience —
-see the note in **Supported providers** above. Toggling `rewriteDoubleUnderscore`
-only changes how ids are displayed, not how many appear.)
 
 **Models appear in `/model` but requests fail**
 Check `/compat-login` ran successfully (no error message).
