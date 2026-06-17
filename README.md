@@ -56,7 +56,26 @@ If pi is already running when you install, type `/reload` first.
 | **OpenCode Zen** | `https://opencode.ai/zen/v1` | API key from opencode.ai |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
+| **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
 | **Custom** | Any URL you supply | Optional bearer token |
+
+> **llmproxy and the `__` model-id rewrite.**
+> [llmproxy](https://github.com/BillJr99/llmproxy) advertises model ids in the
+> `provider__model` form (e.g. `openrouter__gpt-4`) and exposes virtual models
+> such as `llmproxy__free` and `llmproxy__loadbalanced`. pi rejects model ids that
+> contain `__`, so without special handling **every llmproxy model is silently
+> dropped from `/model`**. The llmproxy template therefore sets
+> `rewriteDoubleUnderscore: true`: the extension rewrites the first `__` of each id
+> to `/` (e.g. `openrouter__gpt-4` → `openrouter/gpt-4`, `llmproxy__free` →
+> `llmproxy/free`) before registering with pi. llmproxy canonicalizes that slash
+> form back to `__` on each request, so routing still works.
+>
+> The flag is a per-provider config field (`rewriteDoubleUnderscore`, default
+> **false**) and is enabled automatically only for the llmproxy template — other
+> providers are unaffected. If you added llmproxy as a **Custom** endpoint instead
+> of via the llmproxy template, set `"rewriteDoubleUnderscore": true` on that
+> provider in `~/.config/pi-openai-compat/config.json` (or re-run `/compat-login`
+> and pick **llmproxy (local)**).
 
 > **Providers whose model catalog lives at a non-standard `/models` path (as of June 2026)**
 > Some providers don't return models at `<base_url>/models`. The extension
@@ -326,6 +345,15 @@ account).
 For Ollama: pull at least one model first (`ollama pull llama3`).
 For OpenRouter: some keys are restricted to free-tier models only.
 For NIM: confirm your account has inference access enabled.
+
+**`/compat-login` reports N models but far fewer appear in `/model`**
+This is the classic llmproxy symptom: pi drops every model id containing `__`, so
+llmproxy's `provider__model` ids (and `llmproxy__free` / `llmproxy__loadbalanced`)
+never show. Make sure you logged in via the **llmproxy (local)** template (it sets
+`rewriteDoubleUnderscore: true` automatically). If you used **Custom**, add
+`"rewriteDoubleUnderscore": true` to that provider in
+`~/.config/pi-openai-compat/config.json` and re-run `/compat-refresh`. After the
+fix the ids appear in slash form (`openrouter/gpt-4`, `llmproxy/free`).
 
 **Models appear in `/model` but requests fail**
 Check `/compat-login` ran successfully (no error message).
