@@ -40,6 +40,13 @@ If pi is already running when you install, type `/reload` first.
 | **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-...` from openrouter.ai/keys |
 | **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | `nvapi-...` from build.nvidia.com |
 | **Nous Research Portal** | `https://inference-api.nousresearch.com/v1` | Nous Portal API key |
+| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | API key from aistudio.google.com/apikey |
+| **Cerebras** | `https://api.cerebras.ai/v1` | API key from cloud.cerebras.ai |
+| **SambaNova** | `https://api.sambanova.ai/v1` | API key from cloud.sambanova.ai |
+| **Mistral** | `https://api.mistral.ai/v1` | API key from console.mistral.ai/api-keys |
+| **Groq** | `https://api.groq.com/openai/v1` | API key from console.groq.com/keys |
+| **Cohere** | `https://api.cohere.com/compatibility/v1` | API key from dashboard.cohere.com/api-keys |
+| **Zhipu (Z.ai / BigModel)** | `https://open.bigmodel.cn/api/paas/v4` | API key from open.bigmodel.cn/usercenter/apikeys |
 | **DeepSeek** | `https://api.deepseek.com/v1` | API key from platform.deepseek.com |
 | **xAI (Grok)** | `https://api.x.ai/v1` | API key from console.x.ai |
 | **Hugging Face** | `https://router.huggingface.co/v1` | `hf_...` token from huggingface.co/settings/tokens |
