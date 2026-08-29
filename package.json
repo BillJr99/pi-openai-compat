@@ -14,7 +14,8 @@
   },
   "files": [
     "index.ts",
-    "README.md"
+    "README.md",
+    "add-provider.sh"
   ],
   "pi": {
     "extensions": [

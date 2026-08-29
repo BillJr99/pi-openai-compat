@@ -62,6 +62,9 @@ If pi is already running when you install, type `/reload` first.
 | **Vercel AI Gateway** | `https://ai-gateway.vercel.sh/v1` | API key from vercel.com |
 | **OpenCode Zen** | `https://opencode.ai/zen/v1` | API key from opencode.ai |
 | **B.AI** | `https://api.b.ai/v1` | API key from the B.AI console at b.ai (docs.b.ai) |
+| **xKiro** | `https://api.xkiro.com/v1` | `sk-xt-...` key from the xKiro console at xkiro.com (docs.xkiro.com) |
+| **TeamoRouter** | `https://api.teamorouter.com/v1` | `sk-teamo-...` key from teamorouter.com (teamorouter.com/docs) |
+| **GMI Cloud** | `https://api.gmi-serving.com/v1` | API key from console.gmicloud.ai → Organization Settings → API Keys |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
@@ -195,6 +198,32 @@ Credentials and cached model lists are stored at:
 
 API keys are stored in plaintext.  Protect the file with `chmod 600` if
 needed, or delete it to clear all saved credentials.
+
+### Adding a provider without pi — `add-provider.sh`
+
+`/compat-login` is the normal path, but the repo also ships a standalone script
+that writes the same config entry from a shell:
+
+```
+./add-provider.sh
+```
+
+It lists every provider in `TEMPLATES` (read out of `index.ts` at runtime, so it
+never drifts), then prompts for the API key and for the config file path —
+defaulting to `~/.config/pi-openai-compat/config.json`, and offering to create it
+if it is missing.  It fetches the model catalog, writes
+`providers.<key>` with `displayName` / `baseUrl` / `apiKey` / `cachedModels`
+exactly as the wizard would, backs the old file up to `config.json.bak`, and
+leaves the result `chmod 600`.  Existing providers and `previousModel` are
+preserved, and re-running it just updates the one entry.
+
+If the catalog cannot be fetched (wrong key, provider down), it falls back to the
+template's built-in model list, or lets you type model IDs by hand.  If the
+provider you pick is missing from this checkout's `index.ts` — the script carries
+its own copy of the newest templates — it offers to add the template and the
+README row too.
+
+Afterwards, run `/reload` in pi to pick up the new provider.
 
 ---
 

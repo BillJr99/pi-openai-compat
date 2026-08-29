@@ -309,6 +309,26 @@ const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "b.ai console (docs at docs.b.ai/llmservice/api/)",
   },
+  xkiro: {
+    displayName: "xKiro",
+    baseUrl: "https://api.xkiro.com/v1",
+    keyless: false,
+    keyHint: "xkiro.com console — keys look like sk-xt-... (docs at docs.xkiro.com)",
+  },
+  teamorouter: {
+    displayName: "TeamoRouter",
+    baseUrl: "https://api.teamorouter.com/v1",
+    keyless: false,
+    keyHint: "teamorouter.com — keys look like sk-teamo-... (docs at teamorouter.com/docs/api-integration)",
+  },
+  gmi: {
+    displayName: "GMI Cloud",
+    baseUrl: "https://api.gmi-serving.com/v1",
+    keyless: false,
+    // Inference is served from api.gmi-serving.com; console.gmicloud.ai is the
+    // control plane (containers, clusters, sandboxes) and has no /chat/completions.
+    keyHint: "console.gmicloud.ai → Organization Settings → API Keys (docs at docs.gmicloud.ai/inference-engine)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
