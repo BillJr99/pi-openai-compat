@@ -61,6 +61,7 @@ If pi is already running when you install, type `/reload` first.
 | **Cloudflare AI Gateway** | `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/openai` | API token from dash.cloudflare.com (`AI Gateway: Run` + `Workers AI: Read`) |
 | **Vercel AI Gateway** | `https://ai-gateway.vercel.sh/v1` | API key from vercel.com |
 | **OpenCode Zen** | `https://opencode.ai/zen/v1` | API key from opencode.ai |
+| **B.AI** | `https://api.b.ai/v1` | API key from the B.AI console at b.ai (docs.b.ai) |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
