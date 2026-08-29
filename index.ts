@@ -303,6 +303,12 @@ const TEMPLATES: Record<string, {
     // Verify current model IDs via GET /v1/models — the free model list may change.
     modelFilter: ["big-pickle", "deepseek-v4-flash-free", "minimax-m2.5-free", "nemotron-3-super-free"],
   },
+  bai: {
+    displayName: "B.AI",
+    baseUrl: "https://api.b.ai/v1",
+    keyless: false,
+    keyHint: "b.ai console (docs at docs.b.ai/llmservice/api/)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
