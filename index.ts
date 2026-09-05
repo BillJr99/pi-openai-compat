@@ -761,8 +761,7 @@ export default async function (pi: ExtensionAPI) {
       if (key === "cloudflare_workers") {
         const entered = await ctx.ui.input(
           "Account ID",
-          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
-          ""
+          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):"
         );
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const accountId = entered.trim();
@@ -772,8 +771,7 @@ export default async function (pi: ExtensionAPI) {
       } else if (key === "cloudflare_ai_gateway") {
         const accountIdInput = await ctx.ui.input(
           "Account ID",
-          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):",
-          ""
+          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):"
         );
         if (accountIdInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const accountId = accountIdInput.trim();
@@ -781,8 +779,7 @@ export default async function (pi: ExtensionAPI) {
 
         const gatewayInput = await ctx.ui.input(
           "Gateway Name",
-          "Your AI Gateway name/slug (find it under AI → AI Gateway in the Cloudflare dashboard):",
-          ""
+          "Your AI Gateway name/slug (find it under AI → AI Gateway in the Cloudflare dashboard):"
         );
         if (gatewayInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const gatewaySlug = gatewayInput.trim();
@@ -790,8 +787,7 @@ export default async function (pi: ExtensionAPI) {
 
         const providerInput = await ctx.ui.input(
           "Provider",
-          "Upstream provider slug (e.g. openai, workers-ai, anthropic — must match your gateway config):",
-          "openai"
+          "Upstream provider slug (e.g. openai, workers-ai, anthropic — must match your gateway config):"
         );
         if (providerInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const provider = providerInput.trim() || "openai";
@@ -811,7 +807,7 @@ export default async function (pi: ExtensionAPI) {
         const prompt = isLocalUrl(defaultUrl)
           ? `Base URL — press Enter for default (${defaultUrl}):`
           : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
-        const entered = await ctx.ui.input("Base URL", prompt, defaultUrl);
+        const entered = await ctx.ui.input("Base URL", prompt);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         baseUrl = (entered.trim() || defaultUrl).replace(/\/+$/, "");
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
@@ -823,7 +819,7 @@ export default async function (pi: ExtensionAPI) {
         const keyPrompt = tpl.keyHint
           ? `Your API key (required) — get it at ${tpl.keyHint}:`
           : "Your API key — leave blank if keyless:";
-        const entered = await ctx.ui.input("API Key", keyPrompt, "");
+        const entered = await ctx.ui.input("API Key", keyPrompt);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         apiKey = entered.trim() || null;
       }
@@ -886,7 +882,7 @@ export default async function (pi: ExtensionAPI) {
 
       ctx.ui.notify(
         `${tpl.displayName} registered — ${models.length} model(s) added to /model.`,
-        "success"
+        "info"
       );
     },
   });
@@ -952,7 +948,7 @@ export default async function (pi: ExtensionAPI) {
       }
 
       if (refreshed.length > 0) {
-        ctx.ui.notify(`Refreshed: ${refreshed.join(", ")}.`, "success");
+        ctx.ui.notify(`Refreshed: ${refreshed.join(", ")}.`, "info");
       }
       if (failed.length > 0) {
         ctx.ui.notify(
