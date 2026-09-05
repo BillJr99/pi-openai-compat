@@ -129,7 +129,10 @@ dropped) since you logged in, without restarting your session.
 If you have multiple providers registered, you are asked which one to refresh
 (or choose **All providers**); with a single provider it refreshes directly.
 A failed or empty refresh leaves the existing model list untouched, so a flaky
-network call can't blank out a working provider.
+network call can't blank out a working provider.  Capability metadata you have
+hand-edited into `cachedModels` (see [Config file](#config-file)) survives a
+refresh: the fetched list decides which model IDs exist, and any field the
+provider's catalog omits is carried forward from the previous cache.
 
 ### `/compat-logout`
 
@@ -198,6 +201,38 @@ Credentials and cached model lists are stored at:
 
 API keys are stored in plaintext.  Protect the file with `chmod 600` if
 needed, or delete it to clear all saved credentials.
+
+Each provider's `cachedModels` array holds one entry per model.  Only `id` is
+required; the rest are optional and fall back to conservative defaults when the
+provider's `/models` catalog does not report them:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `id` | string | required | Model ID as sent in requests. |
+| `contextWindow` | number | `128000` | Context window in tokens. |
+| `maxTokens` | number | `4096` | Maximum output tokens per response. |
+| `reasoning` | boolean | `false` | Enables pi's thinking mode for the model. |
+| `input` | `["text"]` or `["text","image"]` | `["text"]` | Modalities pi may send; `image` lets pi attach image blocks. Any other value is ignored. |
+
+Most catalogs report none of these beyond the ID, so aggregators and proxies
+(CLIProxyAPI, for example) register every model as a 128K, text-only,
+non-reasoning model.  To correct that, edit the entry by hand and `/reload`:
+
+```json
+{
+  "providers": {
+    "cpa": {
+      "cachedModels": [
+        { "id": "claude-sonnet-4-6", "contextWindow": 1000000, "maxTokens": 128000,
+          "reasoning": true, "input": ["text", "image"] }
+      ]
+    }
+  }
+}
+```
+
+`/compat-refresh` keeps these hand-edited fields for any model ID that is still
+present in the refreshed catalog; a field the provider does report always wins.
 
 ### Adding a provider without pi — `add-provider.sh`
 
