@@ -760,8 +760,7 @@ export default async function (pi: ExtensionAPI) {
       let modelsUrl: string | undefined = tpl.modelsUrl;
       if (key === "cloudflare_workers") {
         const entered = await ctx.ui.input(
-          "Account ID",
-          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):"
+          "Account ID: your Cloudflare Account ID (find it on the Cloudflare dashboard overview page)"
         );
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const accountId = entered.trim();
@@ -770,24 +769,21 @@ export default async function (pi: ExtensionAPI) {
         if (modelsUrl) modelsUrl = modelsUrl.replace("YOUR_ACCOUNT_ID", accountId);
       } else if (key === "cloudflare_ai_gateway") {
         const accountIdInput = await ctx.ui.input(
-          "Account ID",
-          "Your Cloudflare Account ID (find it on the Cloudflare dashboard overview page):"
+          "Account ID: your Cloudflare Account ID (find it on the Cloudflare dashboard overview page)"
         );
         if (accountIdInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const accountId = accountIdInput.trim();
         if (!accountId) { ctx.ui.notify("Account ID cannot be empty.", "error"); return; }
 
         const gatewayInput = await ctx.ui.input(
-          "Gateway Name",
-          "Your AI Gateway name/slug (find it under AI → AI Gateway in the Cloudflare dashboard):"
+          "Gateway Name: your AI Gateway name/slug (find it under AI → AI Gateway in the Cloudflare dashboard)"
         );
         if (gatewayInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const gatewaySlug = gatewayInput.trim();
         if (!gatewaySlug) { ctx.ui.notify("Gateway name cannot be empty.", "error"); return; }
 
         const providerInput = await ctx.ui.input(
-          "Provider",
-          "Upstream provider slug (e.g. openai, workers-ai, anthropic — must match your gateway config):"
+          "Provider: upstream provider slug (e.g. openai, workers-ai, anthropic — must match your gateway config; press Enter for openai)"
         );
         if (providerInput == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         const provider = providerInput.trim() || "openai";
@@ -804,10 +800,11 @@ export default async function (pi: ExtensionAPI) {
         }
       } else if (tpl.promptUrl) {
         const defaultUrl = tpl.baseUrl;
+        // pi renders only the dialog title, so the guidance goes there.
         const prompt = isLocalUrl(defaultUrl)
-          ? `Base URL — press Enter for default (${defaultUrl}):`
-          : "Base URL of your endpoint (e.g. https://api.example.com/v1):";
-        const entered = await ctx.ui.input("Base URL", prompt);
+          ? `Base URL: press Enter for default (${defaultUrl})`
+          : "Base URL: your endpoint (e.g. https://api.example.com/v1)";
+        const entered = await ctx.ui.input(prompt);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         baseUrl = (entered.trim() || defaultUrl).replace(/\/+$/, "");
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
@@ -817,9 +814,9 @@ export default async function (pi: ExtensionAPI) {
       let apiKey: string | null = null;
       if (!tpl.keyless && !isLocalUrl(baseUrl)) {
         const keyPrompt = tpl.keyHint
-          ? `Your API key (required) — get it at ${tpl.keyHint}:`
-          : "Your API key — leave blank if keyless:";
-        const entered = await ctx.ui.input("API Key", keyPrompt);
+          ? `API Key: required — get it at ${tpl.keyHint}`
+          : "API Key: leave blank if keyless";
+        const entered = await ctx.ui.input(keyPrompt);
         if (entered == null) { ctx.ui.notify("Login cancelled.", "info"); return; }
         apiKey = entered.trim() || null;
       }
