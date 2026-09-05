@@ -29,6 +29,8 @@ interface CachedModel {
   id: string;
   contextWindow?: number;
   maxTokens?: number;
+  reasoning?: boolean;
+  input?: string[];
 }
 
 interface ProviderConfig {
@@ -551,7 +553,13 @@ async function fetchModels(
         typeof rawId === "string" ? rawId :
         typeof rawId === "number" ? String(rawId) :
         "";
-      return { id, contextWindow: m.context_window, maxTokens: m.max_tokens };
+      return {
+        id,
+        contextWindow: m.context_window,
+        maxTokens: m.max_tokens,
+        reasoning: m.reasoning,
+        input: m.input,
+      };
     })
     .filter((m) => Boolean(m.id))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -567,8 +575,8 @@ function buildProviderModels(models: CachedModel[]) {
     return {
       id,
       name: id,
-      reasoning: false,
-      input: ["text"] as string[],
+      reasoning: m.reasoning ?? false,
+      input: m.input ?? (["text"] as string[]),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: m.contextWindow ?? 128_000,
       maxTokens: m.maxTokens ?? 4_096,
