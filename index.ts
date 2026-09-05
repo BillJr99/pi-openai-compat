@@ -25,12 +25,18 @@ import * as os from "node:os";
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Input modalities pi understands; anything else is dropped at fetch time. */
+type ModelInput = "text" | "image";
+
 interface CachedModel {
   id: string;
   contextWindow?: number;
   maxTokens?: number;
+  // Optional capability metadata. Rarely present in a /models payload, but a
+  // user may hand-edit them into cachedModels for providers whose catalog
+  // omits them (see README "Config file"); /compat-refresh preserves them.
   reasoning?: boolean;
-  input?: string[];
+  input?: ModelInput[];
 }
 
 interface ProviderConfig {
@@ -69,8 +75,24 @@ type RawModel = {
   name?: string;
   context_window?: number;
   max_tokens?: number;
+  reasoning?: unknown;
+  input?: unknown;
   task?: { name?: string };
 };
+
+/**
+ * Coerce an upstream `input` value into pi's modality list. Unknown or
+ * malformed values yield undefined so buildProviderModels falls back to the
+ * default, rather than caching something pi would choke on (it calls
+ * `model.input.includes("image")` at tool time).
+ */
+function normalizeInput(value: unknown): ModelInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const kept = value.filter(
+    (v): v is ModelInput => v === "text" || v === "image",
+  );
+  return kept.length > 0 ? kept : undefined;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider templates
@@ -557,8 +579,8 @@ async function fetchModels(
         id,
         contextWindow: m.context_window,
         maxTokens: m.max_tokens,
-        reasoning: m.reasoning,
-        input: m.input,
+        reasoning: typeof m.reasoning === "boolean" ? m.reasoning : undefined,
+        input: normalizeInput(m.input),
       };
     })
     .filter((m) => Boolean(m.id))
@@ -576,10 +598,31 @@ function buildProviderModels(models: CachedModel[]) {
       id,
       name: id,
       reasoning: m.reasoning ?? false,
-      input: m.input ?? (["text"] as string[]),
+      input: m.input ?? (["text"] as ModelInput[]),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: m.contextWindow ?? 128_000,
       maxTokens: m.maxTokens ?? 4_096,
+    };
+  });
+}
+
+/**
+ * Carry hand-edited capability metadata (reasoning / input / contextWindow /
+ * maxTokens) forward from the previous cache when a fresh /models fetch omits
+ * it. The fetched list decides which ids exist; the old cache only fills gaps,
+ * so a provider that does report a field always wins.
+ */
+function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel[]): CachedModel[] {
+  const prior = new Map(previous.map((m) => [m.id, m]));
+  return fetched.map((m) => {
+    const old = prior.get(m.id);
+    if (!old) return m;
+    return {
+      ...m,
+      contextWindow: m.contextWindow ?? old.contextWindow,
+      maxTokens: m.maxTokens ?? old.maxTokens,
+      reasoning: m.reasoning ?? old.reasoning,
+      input: m.input ?? old.input,
     };
   });
 }
@@ -896,7 +939,7 @@ export default async function (pi: ExtensionAPI) {
           if (models.length > 0) {
             // Only overwrite the cache on a successful, non-empty fetch — a
             // flaky refresh must never blank out a working provider's models.
-            p.cachedModels = models;
+            p.cachedModels = mergeModelMetadata(p.cachedModels, models);
             saveConfig(config);
             registerProvider(pi, key, p);
             refreshed.push(`${p.displayName} (${models.length})`);
