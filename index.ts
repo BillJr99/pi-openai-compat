@@ -37,6 +37,11 @@ interface CachedModel {
   // omits them (see README "Config file"); /compat-refresh preserves them.
   reasoning?: boolean;
   input?: ModelInput[];
+  // Optional provider-model passthrough (mirrors pi's ProviderModelConfig):
+  // thinking-level remap, verbatim sampling params, and OpenAI compat flags.
+  thinkingLevelMap?: Record<string, string | null>;
+  samplingParams?: Record<string, unknown>;
+  compat?: Record<string, unknown>;
 }
 
 interface ProviderConfig {
@@ -602,6 +607,9 @@ function buildProviderModels(models: CachedModel[]) {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: m.contextWindow ?? 128_000,
       maxTokens: m.maxTokens ?? 4_096,
+      ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
+      ...(m.samplingParams ? { samplingParams: m.samplingParams } : {}),
+      ...(m.compat ? { compat: m.compat } : {}),
     };
   });
 }
@@ -623,6 +631,9 @@ function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel[]): Ca
       maxTokens: m.maxTokens ?? old.maxTokens,
       reasoning: m.reasoning ?? old.reasoning,
       input: m.input ?? old.input,
+      thinkingLevelMap: m.thinkingLevelMap ?? old.thinkingLevelMap,
+      samplingParams: m.samplingParams ?? old.samplingParams,
+      compat: m.compat ?? old.compat,
     };
   });
 }

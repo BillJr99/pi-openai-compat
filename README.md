@@ -213,6 +213,9 @@ provider's `/models` catalog does not report them:
 | `maxTokens` | number | `4096` | Maximum output tokens per response. |
 | `reasoning` | boolean | `false` | Enables pi's thinking mode for the model. |
 | `input` | `["text"]` or `["text","image"]` | `["text"]` | Modalities pi may send; `image` lets pi attach image blocks. Any other value is ignored. |
+| `thinkingLevelMap` | object | omitted | pi thinking-level remap, passed through to the registered model. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); string values are sent to the provider, `null` hides an unsupported level. See [pi's docs](https://pi.dev/docs/latest/models#thinking-level-map). |
+| `samplingParams` | object | omitted | Free-form object merged verbatim into every request body for the model (e.g. `top_k`, `min_p`, `presence_penalty`). Only OpenAI-compatible APIs apply it. |
+| `compat` | object | omitted | OpenAI compatibility flags for the model (`thinkingFormat`, `chatTemplateKwargs`, `maxTokensField`, `supportsDeveloperRole`, …). See [pi's docs](https://pi.dev/docs/latest/models#openai-compatibility). |
 
 Most catalogs report none of these beyond the ID, so aggregators and proxies
 (CLIProxyAPI, for example) register every model as a 128K, text-only,
