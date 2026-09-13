@@ -358,6 +358,13 @@ const TEMPLATES: Record<string, {
     // control plane (containers, clusters, sandboxes) and has no /chat/completions.
     keyHint: "console.gmicloud.ai → Organization Settings → API Keys (docs at docs.gmicloud.ai/inference-engine)",
   },
+  tokenharbor: {
+    displayName: "Token Harbor",
+    baseUrl: "https://tokenharbor.ai/v1",
+    keyless: false,
+    // One "Universal Key" reaches every model; free models carry a ":free" id suffix.
+    keyHint: "tokenharbor.ai/dashboard/api-keys (Universal Key, format thk_live_...; docs at tokenharbor.ai/docs)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
