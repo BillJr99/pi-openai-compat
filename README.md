@@ -65,6 +65,7 @@ If pi is already running when you install, type `/reload` first.
 | **xKiro** | `https://api.xkiro.com/v1` | `sk-xt-...` key from the xKiro console at xkiro.com (docs.xkiro.com) |
 | **TeamoRouter** | `https://api.teamorouter.com/v1` | `sk-teamo-...` key from teamorouter.com (teamorouter.com/docs) |
 | **GMI Cloud** | `https://api.gmi-serving.com/v1` | API key from console.gmicloud.ai → Organization Settings → API Keys |
+| **Token Harbor** | `https://tokenharbor.ai/v1` | `thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys |
 | **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
