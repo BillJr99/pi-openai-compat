@@ -1,0 +1,37 @@
+name: CI
+
+# Runs on every pull request, and is called by the publish workflow before it
+# releases, so a type error or failing test cannot reach npm. There is no
+# `push` trigger: pushes to main reach this via publish.yml's `needs: ci`,
+# which avoids running the same checks twice for one commit.
+on:
+  pull_request:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      # package-lock.json is intentionally gitignored in this repo, so `npm ci`
+      # is not available here.
+      - name: Install dependencies
+        run: npm install
+
+      # index.ts ships and runs as TypeScript with no build step, so nothing
+      # else would ever catch a type error. This step typechecks against pi's
+      # real published types, which is what catches a provider config that no
+      # longer matches pi's ExtensionAPI surface.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Shell syntax check
+        run: bash -n add-provider.sh

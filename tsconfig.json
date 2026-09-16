@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    // The tests import "../index.ts" by its real path, because Node runs them
+    // directly with built-in type stripping rather than through a build step.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["index.ts", "test/**/*.ts"]
+}

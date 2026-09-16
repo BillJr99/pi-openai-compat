@@ -66,7 +66,7 @@ If pi is already running when you install, type `/reload` first.
 | **TeamoRouter** | `https://api.teamorouter.com/v1` | `sk-teamo-...` key from teamorouter.com (teamorouter.com/docs) |
 | **GMI Cloud** | `https://api.gmi-serving.com/v1` | API key from console.gmicloud.ai → Organization Settings → API Keys |
 | **Token Harbor** | `https://tokenharbor.ai/v1` | `thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys |
-| **Ollama (local)** | `http://localhost:11434/v1` | Keyless |
+| **Ollama (local)** | `http://localhost:11434/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
 | **Custom** | Any URL you supply | Optional bearer token |
@@ -111,8 +111,12 @@ Three commands are available; `/compat-login` is the only one you need to get st
 Walks you through a short wizard:
 
 1. Select a provider from the list above (or choose Custom).
-2. For Ollama and Custom, confirm or change the base URL.
-3. Enter your API key (skipped for keyless providers like Ollama).
+2. For Ollama, llmproxy and Custom, confirm or change the base URL.
+3. Enter your API key.  For the local templates the key is optional: press
+   Enter to skip it on a default install, or supply one if you have put the
+   server behind a reverse proxy or exposed it on your LAN.  The prompt is
+   never skipped based on the hostname, because a `.local` or LAN address is
+   no guarantee that the endpoint is unauthenticated.
 4. The extension connects, fetches the model list from `/v1/models`, and
    registers the provider with pi.
 
@@ -200,8 +204,9 @@ Credentials and cached model lists are stored at:
 ~/.config/pi-openai-compat/config.json
 ```
 
-API keys are stored in plaintext.  Protect the file with `chmod 600` if
-needed, or delete it to clear all saved credentials.
+API keys are stored in plaintext, so the extension creates the file `0600` and
+the directory `0700`, and tightens both on load if an older version left them
+world-readable.  Delete the file to clear all saved credentials.
 
 Each provider's `cachedModels` array holds one entry per model.  Only `id` is
 required; the rest are optional and fall back to conservative defaults when the
@@ -215,8 +220,14 @@ provider's `/models` catalog does not report them:
 | `reasoning` | boolean | `false` | Enables pi's thinking mode for the model. |
 | `input` | `["text"]` or `["text","image"]` | `["text"]` | Modalities pi may send; `image` lets pi attach image blocks. Any other value is ignored. |
 | `thinkingLevelMap` | object | omitted | pi thinking-level remap, passed through to the registered model. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); string values are sent to the provider, `null` hides an unsupported level. See [pi's docs](https://pi.dev/docs/latest/models#thinking-level-map). |
-| `samplingParams` | object | omitted | Free-form object merged verbatim into every request body for the model (e.g. `top_k`, `min_p`, `presence_penalty`). Only OpenAI-compatible APIs apply it. |
+| `samplingParams` | object | omitted | **Not currently applied.** Preserved in the config and passed to pi, but pi's `registerProvider` builds each model from a fixed field list that does not include it (verified against pi 0.73.1), so it has no effect today. Kept for forward compatibility. |
 | `compat` | object | omitted | OpenAI compatibility flags for the model (`thinkingFormat`, `chatTemplateKwargs`, `maxTokensField`, `supportsDeveloperRole`, …). See [pi's docs](https://pi.dev/docs/latest/models#openai-compatibility). |
+
+`contextWindow` and `maxTokens` are validated before they reach pi: a value
+that is not a positive finite number is ignored in favor of the default, and
+anything above 10,000,000 (context) or 1,000,000 (output) is clamped.  pi drives
+its context accounting off these numbers, so an inflated value from a
+misreporting or hostile catalog would otherwise inflate every request sent.
 
 Most catalogs report none of these beyond the ID, so aggregators and proxies
 (CLIProxyAPI, for example) register every model as a 128K, text-only,
