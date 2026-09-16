@@ -150,8 +150,17 @@ function normalizeModels(body, idField, keepTask) {
       const rawId = m ? m[field] : undefined;
       const id = typeof rawId === "string" ? rawId : typeof rawId === "number" ? String(rawId) : "";
       const out = { id };
-      if (m && m.context_window !== undefined) out.contextWindow = m.context_window;
-      if (m && m.max_tokens !== undefined) out.maxTokens = m.max_tokens;
+      // Mirrors normalizeTokenCount() in index.ts: the catalog is untrusted,
+      // so a non-numeric or absurd token count is dropped/clamped rather than
+      // written into config.json.
+      const num = (v, max) =>
+        typeof v === "number" && Number.isFinite(v) && v > 0
+          ? Math.min(Math.floor(v), max)
+          : undefined;
+      const ctx = num(m ? m.context_window : undefined, 10000000);
+      const max = num(m ? m.max_tokens : undefined, 1000000);
+      if (ctx !== undefined) out.contextWindow = ctx;
+      if (max !== undefined) out.maxTokens = max;
       return out;
     })
     .filter((m) => Boolean(m.id))

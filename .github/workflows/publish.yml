@@ -8,7 +8,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Typecheck + tests must pass before anything is published. Without this the
+  # publish job would release whatever landed on main, which is how a provider
+  # config that pi rejects at registration time reached npm before.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   publish:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write

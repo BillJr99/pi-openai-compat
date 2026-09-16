@@ -70,16 +70,12 @@ interface ExtensionConfig {
   providers: Record<string, ProviderConfig>;
 }
 
-interface OpenAIModelsResponse {
-  data: Array<{ id: string; context_window?: number; max_tokens?: number }>;
-}
-
 /** Loose shape for a single entry in any /models response. */
 type RawModel = {
   id?: string;
   name?: string;
-  context_window?: number;
-  max_tokens?: number;
+  context_window?: unknown;
+  max_tokens?: unknown;
   reasoning?: unknown;
   input?: unknown;
   task?: { name?: string };
@@ -91,7 +87,7 @@ type RawModel = {
  * default, rather than caching something pi would choke on (it calls
  * `model.input.includes("image")` at tool time).
  */
-function normalizeInput(value: unknown): ModelInput[] | undefined {
+export function normalizeInput(value: unknown): ModelInput[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const kept = value.filter(
     (v): v is ModelInput => v === "text" || v === "image",
@@ -99,13 +95,41 @@ function normalizeInput(value: unknown): ModelInput[] | undefined {
   return kept.length > 0 ? kept : undefined;
 }
 
+// Upper bounds for token counts accepted from a provider catalog or a
+// hand-edited config. pi drives context accounting off these numbers, so an
+// absurd value inflates every request this extension sends; clamping keeps a
+// misreporting or hostile catalog from turning into runaway token spend.
+export const MAX_CONTEXT_WINDOW = 10_000_000;
+export const MAX_OUTPUT_TOKENS = 1_000_000;
+
+/**
+ * Coerce an untrusted token count into a sane positive integer. A `/models`
+ * payload is attacker-controlled for the purposes of this extension (it exists
+ * to connect to arbitrary third-party endpoints), and `??` only rejects null
+ * and undefined — a string or NaN would flow straight through into pi. Anything
+ * that is not a finite positive number yields undefined so the caller's default
+ * applies; anything larger than `max` is clamped rather than discarded.
+ */
+export function normalizeTokenCount(value: unknown, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.min(Math.floor(value), max);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider templates
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TEMPLATES: Record<string, {
+export const TEMPLATES: Record<string, {
   displayName: string;
   baseUrl: string;
+  /**
+   * True only for endpoints that cannot accept a key at all. Do not set it
+   * merely because a provider is usually run locally: a self-hosted server
+   * reachable over the LAN is commonly put behind a key, and skipping the
+   * prompt leaves the user no way to supply one.
+   */
   keyless: boolean;
   /** If set, only models whose id appears in this list are kept after fetching. */
   modelFilter?: string[];
@@ -301,9 +325,13 @@ const TEMPLATES: Record<string, {
     keyHint: "api.together.ai/settings/api-keys",
   },
   ollama: {
-    displayName: "Ollama (local, keyless)",
+    displayName: "Ollama (local)",
     baseUrl: "http://localhost:11434/v1",
-    keyless: true,
+    // Not keyless: Ollama is frequently exposed beyond loopback (a LAN or
+    // .local hostname) behind a reverse proxy that does require a key. The
+    // prompt says the key is optional, so a plain local install just presses
+    // Enter.
+    keyless: false,
     promptUrl: true,
   },
   ollama_cloud: {
@@ -315,7 +343,9 @@ const TEMPLATES: Record<string, {
   llmproxy: {
     displayName: "llmproxy (local)",
     baseUrl: "http://localhost:8080/v1",
-    keyless: true,
+    // See the note on the ollama template: local by default, but reachable
+    // (and key-protected) off-host often enough that the prompt must appear.
+    keyless: false,
     promptUrl: true,
   },
   vercel: {
@@ -380,11 +410,43 @@ const TEMPLATES: Record<string, {
 const CONFIG_DIR = path.join(os.homedir(), ".config", "pi-openai-compat");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
 
+// config.json holds every provider's API key in cleartext, so neither it nor
+// its directory may be group- or world-readable. add-provider.sh already writes
+// 0600; these constants keep the extension's own writes consistent with it.
+export const CONFIG_DIR_MODE = 0o700;
+export const CONFIG_FILE_MODE = 0o600;
+
+/**
+ * Tighten a path's permissions when they are broader than `mode`. Needed
+ * because the `mode` option of writeFileSync/mkdirSync applies only at
+ * creation time: a config.json written at 0644 by an earlier version keeps
+ * that mode forever otherwise. A no-op on platforms without POSIX modes.
+ */
+export function restrictPermissions(target: string, mode: number): void {
+  try {
+    const current = fs.statSync(target).mode & 0o777;
+    if ((current & ~mode) !== 0) fs.chmodSync(target, mode);
+  } catch (e) {
+    console.error(`[openai-compat:restrictPermissions] ${target}`, e);
+  }
+}
+
+/** Create the config directory if absent, and keep it owner-only either way. */
+function ensureConfigDir(): void {
+  if (!fs.existsSync(CONFIG_DIR)) {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: CONFIG_DIR_MODE });
+    return;
+  }
+  restrictPermissions(CONFIG_DIR, CONFIG_DIR_MODE);
+}
+
 function loadConfig(): ExtensionConfig {
   const empty: ExtensionConfig = { previousModel: null, providers: {} };
   try {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    ensureConfigDir();
     if (!fs.existsSync(CONFIG_PATH)) return empty;
+    // Repair a config written before the extension enforced 0600.
+    restrictPermissions(CONFIG_PATH, CONFIG_FILE_MODE);
 
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown>;
     const config: ExtensionConfig = {
@@ -408,8 +470,12 @@ function loadConfig(): ExtensionConfig {
 
 function saveConfig(config: ExtensionConfig): void {
   try {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
+    ensureConfigDir();
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), {
+      encoding: "utf-8",
+      mode: CONFIG_FILE_MODE,
+    });
+    restrictPermissions(CONFIG_PATH, CONFIG_FILE_MODE);
   } catch (e) {
     console.error("[openai-compat:saveConfig]", e);
   }
@@ -503,7 +569,7 @@ function migrateDiscoveryFields(config: ExtensionConfig): { healed: string[]; st
 // Networking
 // ─────────────────────────────────────────────────────────────────────────────
 
-function isLocalUrl(url: string): boolean {
+export function isLocalUrl(url: string): boolean {
   try {
     const { hostname } = new URL(url);
     return (
@@ -518,6 +584,9 @@ function isLocalUrl(url: string): boolean {
   }
 }
 
+/** Cap on how much of an upstream error body is surfaced to the user. */
+export const MAX_ERROR_BODY = 500;
+
 /** Optional per-provider overrides controlling how /models is fetched. */
 interface FetchOverrides {
   /** Full URL to fetch instead of `<baseUrl>/models`. */
@@ -528,7 +597,7 @@ interface FetchOverrides {
   keepTask?: string;
 }
 
-async function fetchModels(
+export async function fetchModels(
   baseUrl: string,
   apiKey: string | null,
   overrides: FetchOverrides = {},
@@ -545,10 +614,16 @@ async function fetchModels(
 
   const resp = await fetch(url, { headers });
   if (!resp.ok) {
-    // The Authorization header is never echoed here, so the error body is
-    // safe to surface even though we include the upstream's full response.
+    // This extension never echoes the Authorization header, but the body is
+    // the upstream's: some gateways reflect parts of the submitted credential
+    // or internal identifiers into error payloads, and this text is rendered
+    // straight into the UI. Keep enough to diagnose, not enough to dump a
+    // credential-bearing page.
     const body = await resp.text().catch(() => "");
-    throw new Error(`HTTP ${resp.status} from ${url}: ${body}`);
+    const snippet = body.length > MAX_ERROR_BODY
+      ? `${body.slice(0, MAX_ERROR_BODY)}… (truncated)`
+      : body;
+    throw new Error(`HTTP ${resp.status} from ${url}: ${snippet}`);
   }
 
   // Normalize the various shapes /models can return:
@@ -589,8 +664,8 @@ async function fetchModels(
         "";
       return {
         id,
-        contextWindow: m.context_window,
-        maxTokens: m.max_tokens,
+        contextWindow: normalizeTokenCount(m.context_window, MAX_CONTEXT_WINDOW),
+        maxTokens: normalizeTokenCount(m.max_tokens, MAX_OUTPUT_TOKENS),
         reasoning: typeof m.reasoning === "boolean" ? m.reasoning : undefined,
         input: normalizeInput(m.input),
       };
@@ -603,7 +678,7 @@ async function fetchModels(
 // Provider registration helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildProviderModels(models: CachedModel[]) {
+export function buildProviderModels(models: CachedModel[]) {
   return models.map((m) => {
     const id = m.id;
     return {
@@ -612,8 +687,10 @@ function buildProviderModels(models: CachedModel[]) {
       reasoning: m.reasoning ?? false,
       input: m.input ?? (["text"] as ModelInput[]),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: m.contextWindow ?? 128_000,
-      maxTokens: m.maxTokens ?? 4_096,
+      // Re-validated here as well as at fetch time: cachedModels is a
+      // hand-editable file, so this is the single choke point pi sees.
+      contextWindow: normalizeTokenCount(m.contextWindow, MAX_CONTEXT_WINDOW) ?? 128_000,
+      maxTokens: normalizeTokenCount(m.maxTokens, MAX_OUTPUT_TOKENS) ?? 4_096,
       ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
       ...(m.samplingParams ? { samplingParams: m.samplingParams } : {}),
       ...(m.compat ? { compat: m.compat } : {}),
@@ -627,7 +704,7 @@ function buildProviderModels(models: CachedModel[]) {
  * it. The fetched list decides which ids exist; the old cache only fills gaps,
  * so a provider that does report a field always wins.
  */
-function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel[]): CachedModel[] {
+export function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel[]): CachedModel[] {
   const prior = new Map(previous.map((m) => [m.id, m]));
   return fetched.map((m) => {
     const old = prior.get(m.id);
@@ -645,18 +722,50 @@ function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel[]): Ca
   });
 }
 
-function compatKey(key: string): string {
+/**
+ * Stand-in API key for providers that genuinely use none. pi's registerProvider
+ * throws `"apiKey" or "oauth" is required when defining models` on a falsy
+ * value, which would abort the extension factory before any /compat-* command
+ * is registered — leaving no in-app way to repair the config.
+ */
+export const KEYLESS_PLACEHOLDER = "unused";
+
+export function compatKey(key: string): string {
   return `compat-${key}`;
 }
 
-function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): void {
+export function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): void {
   pi.registerProvider(compatKey(key), {
     name: `compat/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
+    // pi rejects a provider that defines models unless apiKey is a non-empty
+    // string, so a genuinely keyless endpoint (Ollama, llmproxy) still needs a
+    // placeholder here. Deliberately not conditioned on the hostname: a .local
+    // or LAN host can be key-protected, which is what the wizard now asks
+    // about rather than inferring. Endpoints that ignore Authorization discard
+    // this; ones that require a key return a clean 401.
+    apiKey: p.apiKey ?? KEYLESS_PLACEHOLDER,
     api: "openai-completions" as const,
     models: buildProviderModels(p.cachedModels),
   });
+}
+
+/**
+ * Register a provider, reporting failure instead of throwing.
+ *
+ * Every saved provider is registered before any command is registered, so an
+ * uncaught throw here would take down the whole extension — including the
+ * /compat-login and /compat-logout commands needed to fix whatever caused it.
+ * One malformed entry should cost the user that one provider, nothing more.
+ */
+export function tryRegisterProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): boolean {
+  try {
+    registerProvider(pi, key, p);
+    return true;
+  } catch (e) {
+    console.error(`[openai-compat:tryRegisterProvider] provider "${key}"`, e);
+    return false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -676,7 +785,7 @@ export default async function (pi: ExtensionAPI) {
   // continues — providers are visible in /model from the very first render.
   for (const [key, p] of Object.entries(config.providers)) {
     if (p.cachedModels.length > 0) {
-      registerProvider(pi, key, p);
+      tryRegisterProvider(pi, key, p);
     }
   }
 
@@ -697,8 +806,8 @@ export default async function (pi: ExtensionAPI) {
     for (const [key, p] of Object.entries(config.providers)) {
       if (p.cachedModels.length > 0) {
         // Use cached list — fast, no network call.
-        registerProvider(pi, key, p);
-        registered.push(p.displayName);
+        if (tryRegisterProvider(pi, key, p)) registered.push(p.displayName);
+        else failed.push(p.displayName);
       } else {
         // Cache is empty (e.g. migrated from older config).  Try a live fetch,
         // honoring any per-provider discovery overrides stored on the config.
@@ -711,8 +820,11 @@ export default async function (pi: ExtensionAPI) {
           if (models.length > 0) {
             p.cachedModels = models;
             saveConfig(config);
-            registerProvider(pi, key, p);
-            registered.push(`${p.displayName} (refreshed)`);
+            if (tryRegisterProvider(pi, key, p)) {
+              registered.push(`${p.displayName} (refreshed)`);
+            } else {
+              failed.push(p.displayName);
+            }
           } else {
             failed.push(p.displayName);
           }
@@ -893,7 +1005,14 @@ export default async function (pi: ExtensionAPI) {
         modelsKeepTask: tpl.modelsKeepTask,
       };
       saveConfig(config);
-      registerProvider(pi, key, config.providers[key]);
+      if (!tryRegisterProvider(pi, key, config.providers[key])) {
+        ctx.ui.notify(
+          `${tpl.displayName} was saved but could not be registered with pi. ` +
+          `Run /compat-logout to remove it, or check the log for details.`,
+          "error"
+        );
+        return;
+      }
 
       ctx.ui.notify(
         `${tpl.displayName} registered — ${models.length} model(s) added to /model.`,
@@ -952,8 +1071,11 @@ export default async function (pi: ExtensionAPI) {
             // flaky refresh must never blank out a working provider's models.
             p.cachedModels = mergeModelMetadata(p.cachedModels, models);
             saveConfig(config);
-            registerProvider(pi, key, p);
-            refreshed.push(`${p.displayName} (${models.length})`);
+            if (tryRegisterProvider(pi, key, p)) {
+              refreshed.push(`${p.displayName} (${models.length})`);
+            } else {
+              failed.push(p.displayName);
+            }
           } else {
             failed.push(p.displayName);
           }
