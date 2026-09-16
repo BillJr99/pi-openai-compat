@@ -653,7 +653,7 @@ function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): voi
   pi.registerProvider(compatKey(key), {
     name: `compat/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
-    apiKey: p.apiKey ?? (isLocalUrl(p.baseUrl) ? "local" : ""),
+    apiKey: p.apiKey,
     api: "openai-completions" as const,
     models: buildProviderModels(p.cachedModels),
   });
@@ -828,9 +828,9 @@ export default async function (pi: ExtensionAPI) {
         if (!baseUrl) { ctx.ui.notify("Base URL cannot be empty.", "error"); return; }
       }
 
-      // Step 3 — API key (skipped for keyless templates and detected local URLs)
+      // Step 3 — API key (skipped for keyless templates)
       let apiKey: string | null = null;
-      if (!tpl.keyless && !isLocalUrl(baseUrl)) {
+      if (!tpl.keyless) {
         const keyPrompt = tpl.keyHint
           ? `API Key: required — get it at ${tpl.keyHint}`
           : "API Key: leave blank if keyless";
