@@ -395,6 +395,16 @@ export const TEMPLATES: Record<string, {
     // One "Universal Key" reaches every model; free models carry a ":free" id suffix.
     keyHint: "tokenharbor.ai/dashboard/api-keys (Universal Key, format thk_live_...; docs at tokenharbor.ai/docs)",
   },
+  atria_asi: {
+    displayName: "Atria ASI",
+    baseUrl: "https://api.atria-asi.ai/v1",
+    keyless: false,
+    // One model, Atria-Dawn-Preview: 256K context, text-only input. GET
+    // /v1/models is undocumented but registered and key-gated (it answers 401,
+    // where an unknown /v1 path answers 404), which is exactly what fetchModels
+    // already sends, so no modelsUrl or fallbackModels override is needed.
+    keyHint: "api.atria-asi.ai/console/keys (Google sign-in; keys look like atr_...; docs at api.atria-asi.ai/docs)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",

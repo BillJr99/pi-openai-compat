@@ -54,6 +54,18 @@ const BUILTIN = {
     keyless: false,
     keyHint: "console.gmicloud.ai → Organization Settings → API Keys (docs at docs.gmicloud.ai/inference-engine)",
   },
+  tokenharbor: {
+    displayName: "Token Harbor",
+    baseUrl: "https://tokenharbor.ai/v1",
+    keyless: false,
+    keyHint: "tokenharbor.ai/dashboard/api-keys (Universal Key, format thk_live_...; docs at tokenharbor.ai/docs)",
+  },
+  atria_asi: {
+    displayName: "Atria ASI",
+    baseUrl: "https://api.atria-asi.ai/v1",
+    keyless: false,
+    keyHint: "api.atria-asi.ai/console/keys (Google sign-in; keys look like atr_...; docs at api.atria-asi.ai/docs)",
+  },
 };
 
 // README "Auth" column text for the built-in providers, used only by patchreadme.
@@ -61,6 +73,8 @@ const BUILTIN_AUTH = {
   xkiro: "`sk-xt-...` key from the xKiro console at xkiro.com (docs.xkiro.com)",
   teamorouter: "`sk-teamo-...` key from teamorouter.com (teamorouter.com/docs)",
   gmi: "API key from console.gmicloud.ai → Organization Settings → API Keys",
+  tokenharbor: "`thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys",
+  atria_asi: "`atr_...` key from api.atria-asi.ai/console/keys (Google sign-in)",
 };
 
 /**
