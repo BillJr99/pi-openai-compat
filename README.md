@@ -67,6 +67,7 @@ If pi is already running when you install, type `/reload` first.
 | **GMI Cloud** | `https://api.gmi-serving.com/v1` | API key from console.gmicloud.ai → Organization Settings → API Keys |
 | **Token Harbor** | `https://tokenharbor.ai/v1` | `thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys |
 | **Atria ASI** | `https://api.atria-asi.ai/v1` | `atr_...` key from api.atria-asi.ai/console/keys (Google sign-in) |
+| **Unbiased AI** | `https://api.unbiased.ai/v1` | `sk_...` key from platform.unbiased.ai (signup reviewed by hand) |
 | **Ollama (local)** | `http://localhost:11434/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |

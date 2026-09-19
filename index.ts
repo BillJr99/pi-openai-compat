@@ -405,6 +405,19 @@ export const TEMPLATES: Record<string, {
     // already sends, so no modelsUrl or fallbackModels override is needed.
     keyHint: "api.atria-asi.ai/console/keys (Google sign-in; keys look like atr_...; docs at api.atria-asi.ai/docs)",
   },
+  unbiased_ai: {
+    displayName: "Unbiased AI",
+    baseUrl: "https://api.unbiased.ai/v1",
+    keyless: false,
+    // One model, "pareto", a blend of frontier and open models. The endpoint
+    // answers both /v1/chat/completions and Anthropic's /v1/messages and takes
+    // either Authorization: Bearer or x-api-key; pi is registered with the
+    // OpenAI pair, which is what registerProvider and fetchModels already send.
+    // GET /v1/models is registered and key-gated (a well-formed sk_ key gets
+    // "Invalid API key" rather than a format complaint), so no modelsUrl or
+    // fallbackModels override is needed.
+    keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
