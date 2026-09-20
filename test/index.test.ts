@@ -385,12 +385,13 @@ describe("supporting behavior relied on by the fixes", () => {
     assert.equal(compatKey("ollama"), "compat-ollama");
   });
 
-  test("fetchModels accepts the three documented catalog shapes", async (t) => {
+  test("fetchModels accepts the four documented catalog shapes", async (t) => {
     const original = globalThis.fetch;
     t.after(() => { globalThis.fetch = original; });
     for (const payload of [
       { data: [{ id: "m" }] },
       { result: [{ id: "m" }] },
+      { models: [{ id: "m" }] },
       [{ id: "m" }],
     ]) {
       globalThis.fetch = (async () => ({ ok: true, json: async () => payload })) as any;

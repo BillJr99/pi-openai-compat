@@ -68,6 +68,10 @@ If pi is already running when you install, type `/reload` first.
 | **Token Harbor** | `https://tokenharbor.ai/v1` | `thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys |
 | **Atria ASI** | `https://api.atria-asi.ai/v1` | `atr_...` key from api.atria-asi.ai/console/keys (Google sign-in) |
 | **Unbiased AI** | `https://api.unbiased.ai/v1` | `sk_...` key from platform.unbiased.ai (signup reviewed by hand) |
+| **Kilo AI** | `https://api.kilo.ai/api/gateway` | API key from app.kilo.ai → Your Profile (personal account), at the bottom of the page; needs account credits |
+| **ModelScope** | `https://api-inference.modelscope.cn/v1` | `ms-...` SDK token from modelscope.cn/my/myaccesstoken |
+| **Aion Labs** | `https://api.aionlabs.ai/v1` | API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs) |
+| **Agnes AI** | `https://apihub.agnes-ai.com/v1` | `sk-...` key from the Agnes console at platform.agnes-ai.com (wiki.agnes-ai.com) |
 | **Ollama (local)** | `http://localhost:11434/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
