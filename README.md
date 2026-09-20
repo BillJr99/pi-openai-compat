@@ -88,7 +88,12 @@ If pi is already running when you install, type `/reload` first.
 > 2. **Built-in fallback list** when no working catalog endpoint exists. Used
 >    when discovery fails or when the upstream simply has no `/models` at all
 >    (e.g. **Hugging Face** returns HTML, **Cloudflare AI Gateway** has no
->    catalog endpoint).
+>    catalog endpoint, **Unbiased AI** has no such route).
+>
+> A fallback list stands in for a missing endpoint, never for a rejected
+> credential: a catalog fetch that fails with 401 or 403 aborts the login
+> instead, so a mistyped key cannot be saved as a provider that looks healthy
+> in `/model` and then fails on every completion.
 >
 > | Provider | Default `/models` symptom | Handling |
 > |---|---|---|
@@ -96,6 +101,7 @@ If pi is already running when you install, type `/reload` first.
 > | **Cloudflare Workers AI** | HTTP 405 (no `GET /v1/models`; real catalog at `/ai/models/search`, id field is `name`, mixed task types) | Live discovery — `modelsUrl: …/ai/models/search`, `modelsIdField: name`, `modelsKeepTask: "Text Generation"` |
 > | **Cloudflare AI Gateway** | HTTP 401 (token missing `AI Gateway: Run`) or HTTP 400 *"Please configure AI Gateway"* (gateway slug doesn't exist, or the upstream isn't configured on it) | Built-in fallback list |
 > | **Hugging Face** | Returns HTML rather than JSON | Built-in fallback list |
+> | **Unbiased AI** | HTTP 404 `unknown_url` with a valid key (no `/v1/models` at all; an *invalid* key returns 401 on every path, including ones that do not exist, so a 401 here proves nothing) | Built-in fallback list |
 >
 > **Auto-heal for older configs:** if you logged in before live discovery
 > existed, your saved provider is missing these `modelsUrl`/`modelsIdField`/
