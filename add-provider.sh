@@ -72,6 +72,30 @@ const BUILTIN = {
     keyless: false,
     keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
   },
+  kilo: {
+    displayName: "Kilo AI",
+    baseUrl: "https://api.kilo.ai/api/gateway",
+    keyless: false,
+    keyHint: "app.kilo.ai → Your Profile on your personal account (not an organization), at the bottom of the page; needs account credits (docs at kilo.ai/docs/gateway)",
+  },
+  modelscope: {
+    displayName: "ModelScope",
+    baseUrl: "https://api-inference.modelscope.cn/v1",
+    keyless: false,
+    keyHint: "modelscope.cn/my/myaccesstoken (SDK token, format ms-...; docs at modelscope.cn/docs/model-service/API-Inference/intro)",
+  },
+  aion_labs: {
+    displayName: "Aion Labs",
+    baseUrl: "https://api.aionlabs.ai/v1",
+    keyless: false,
+    keyHint: "aionlabs.ai/app/api-keys (docs at aionlabs.ai/docs/api-reference)",
+  },
+  agnes_ai: {
+    displayName: "Agnes AI",
+    baseUrl: "https://apihub.agnes-ai.com/v1",
+    keyless: false,
+    keyHint: "platform.agnes-ai.com → API Key management (keys look like sk-...; docs at wiki.agnes-ai.com)",
+  },
 };
 
 // README "Auth" column text for the built-in providers, used only by patchreadme.
@@ -82,6 +106,10 @@ const BUILTIN_AUTH = {
   tokenharbor: "`thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys",
   atria_asi: "`atr_...` key from api.atria-asi.ai/console/keys (Google sign-in)",
   unbiased_ai: "`sk_...` key from platform.unbiased.ai (signup reviewed by hand)",
+  kilo: "API key from app.kilo.ai → Your Profile (personal account), at the bottom of the page; needs account credits",
+  modelscope: "`ms-...` SDK token from modelscope.cn/my/myaccesstoken",
+  aion_labs: "API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs)",
+  agnes_ai: "`sk-...` key from the Agnes console at platform.agnes-ai.com (wiki.agnes-ai.com)",
 };
 
 /**
@@ -158,8 +186,9 @@ function normalizeModels(body, idField, keepTask) {
   else if (json && typeof json === "object") {
     if (Array.isArray(json.data)) raw = json.data;
     else if (Array.isArray(json.result)) raw = json.result;
+    else if (Array.isArray(json.models)) raw = json.models;
   }
-  if (!raw) throw new Error('expected an array or an object with a "data" or "result" array');
+  if (!raw) throw new Error('expected an array or an object with a "data", "result" or "models" array');
   const field = idField || "id";
   return raw
     .filter((m) => {

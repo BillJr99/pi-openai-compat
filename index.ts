@@ -418,6 +418,52 @@ export const TEMPLATES: Record<string, {
     // fallbackModels override is needed.
     keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
   },
+  kilo: {
+    displayName: "Kilo AI",
+    baseUrl: "https://api.kilo.ai/api/gateway",
+    keyless: false,
+    // Multi-vendor gateway; the base path is /api/gateway, not /v1. GET
+    // /api/gateway/models answers 200 without a key and returns an
+    // OpenRouter-shaped {"data": [...]} catalog (~380 models, ids like
+    // anthropic/claude-sonnet-5), so no modelsUrl or fallbackModels override
+    // is needed. Inference itself needs a key and account credits.
+    keyHint: "app.kilo.ai → Your Profile on your personal account (not an organization), at the bottom of the page; needs account credits (docs at kilo.ai/docs/gateway)",
+  },
+  modelscope: {
+    displayName: "ModelScope",
+    baseUrl: "https://api-inference.modelscope.cn/v1",
+    keyless: false,
+    // Alibaba's API-Inference service. GET /v1/models answers 200 without a
+    // key in the plain OpenAI {"data": [...]} shape, so the default discovery
+    // path works as is. Free tier is an account-wide 2,000 requests/day.
+    keyHint: "modelscope.cn/my/myaccesstoken (SDK token, format ms-...; docs at modelscope.cn/docs/model-service/API-Inference/intro)",
+  },
+  aion_labs: {
+    displayName: "Aion Labs",
+    baseUrl: "https://api.aionlabs.ai/v1",
+    keyless: false,
+    // Aion's own API reference documents GET /v1/models as needing no
+    // authentication and returning its array under a top-level "models" key
+    // rather than "data". fetchModels normalizes that shape, so no modelsUrl
+    // or fallbackModels override is needed. Four models as of
+    // September 2026 (aion-2.0, aion-3.0, aion-3.0-mini, aion-rp-llama-3.1-8b).
+    keyHint: "aionlabs.ai/app/api-keys (docs at aionlabs.ai/docs/api-reference)",
+  },
+  agnes_ai: {
+    displayName: "Agnes AI",
+    baseUrl: "https://apihub.agnes-ai.com/v1",
+    keyless: false,
+    // Multimodal gateway. GET /v1/models is key-gated (it answers 401 "Token
+    // not provided", where an unknown /v1 path answers 404), which is exactly
+    // what fetchModels already sends, so no override is needed. The catalog
+    // also carries image and video model ids (agnes-image-*, agnes-video-*);
+    // they are registered too and will show up in /model, but only the text
+    // models serve chat/completions: the free flash tier (agnes-3.0-flash,
+    // agnes-2.5-flash, agnes-2.0-flash) and the paid agnes-2.5-pro pair. No
+    // modelFilter is set because the live id list could not be confirmed
+    // without a key, and a filter that misses would register nothing.
+    keyHint: "platform.agnes-ai.com → API Key management (keys look like sk-...; docs at wiki.agnes-ai.com)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
@@ -652,22 +698,24 @@ export async function fetchModels(
   // Normalize the various shapes /models can return:
   //   - OpenAI style:                  {"data": [...]}
   //   - Cloudflare / some gateways:    {"result": [...]}
+  //   - Aion Labs:                     {"models": [...]}
   //   - Together (and a few others):   [...]   (bare JSON array)
   const json = (await resp.json()) as unknown;
   let raw: RawModel[] | undefined;
   if (Array.isArray(json)) {
     raw = json as RawModel[];
   } else if (json && typeof json === "object") {
-    const obj = json as { data?: unknown; result?: unknown };
+    const obj = json as { data?: unknown; result?: unknown; models?: unknown };
     if (Array.isArray(obj.data)) raw = obj.data as RawModel[];
     else if (Array.isArray(obj.result)) raw = obj.result as RawModel[];
+    else if (Array.isArray(obj.models)) raw = obj.models as RawModel[];
   }
   if (!raw) {
     // `url` may be an override (e.g. /catalog/models, /ai/models/search), so
     // keep the wording generic rather than referring specifically to /models.
     throw new Error(
       `Unexpected model catalog payload shape from ${url} ` +
-      `(expected an array or an object with a "data" or "result" array).`
+      `(expected an array or an object with a "data", "result" or "models" array).`
     );
   }
 
