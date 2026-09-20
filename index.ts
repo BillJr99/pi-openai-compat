@@ -458,7 +458,8 @@ export const TEMPLATES: Record<string, {
     // what fetchModels already sends, so no override is needed. The catalog
     // also carries image and video model ids (agnes-image-*, agnes-video-*);
     // they are registered too and will show up in /model, but only the text
-    // models (agnes-2.5-flash, agnes-2.0-flash) serve chat/completions. No
+    // models serve chat/completions: the free flash tier (agnes-3.0-flash,
+    // agnes-2.5-flash, agnes-2.0-flash) and the paid agnes-2.5-pro pair. No
     // modelFilter is set because the live id list could not be confirmed
     // without a key, and a filter that misses would register nothing.
     keyHint: "platform.agnes-ai.com → API Key management (keys look like sk-...; docs at wiki.agnes-ai.com)",
