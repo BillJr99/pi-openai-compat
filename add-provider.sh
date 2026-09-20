@@ -465,6 +465,17 @@ fi
 MODEL_COUNT=0
 [ -n "$MODELS_JSON" ] && MODEL_COUNT="$(printf '%s' "$MODELS_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s).length)))')"
 
+# Mirrors isAuthFailure() in index.ts: a fallback list stands in for an endpoint
+# that is not there, never for a credential that was refused. Falling back on a
+# 401/403 would write a provider that looks healthy in /model and fails on every
+# completion, which is worse than saying the key was rejected.
+if [ "$MODEL_COUNT" = "0" ] && { [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; }; then
+  echo "  The provider rejected the API key (HTTP $HTTP_CODE)."
+  echo "  Not using the built-in model list: that would save a provider whose"
+  echo "  every request fails. Re-run with a valid key."
+  exit 1
+fi
+
 if [ "$MODEL_COUNT" = "0" ]; then
   if [ -n "$FALLBACK_MODELS" ]; then
     echo "  Using this template's built-in model list instead."

@@ -413,9 +413,21 @@ export const TEMPLATES: Record<string, {
     // answers both /v1/chat/completions and Anthropic's /v1/messages and takes
     // either Authorization: Bearer or x-api-key; pi is registered with the
     // OpenAI pair, which is what registerProvider and fetchModels already send.
-    // GET /v1/models is registered and key-gated (a well-formed sk_ key gets
-    // "Invalid API key" rather than a format complaint), so no modelsUrl or
-    // fallbackModels override is needed.
+    //
+    // GET /v1/models does NOT exist: with a valid key it returns 404
+    // "unknown_url". An earlier note here claimed the endpoint was registered
+    // and key-gated, reasoning from a well-formed but invalid key getting
+    // "Invalid API key" rather than a 404. That inference was wrong. The
+    // gateway authenticates before it routes, so a path that certainly does
+    // not exist returns the same 401: GET /v1/definitely-not-a-real-endpoint
+    // answers "Invalid API key" with a bad key and "Missing API key" without
+    // one, exactly as /v1/models does. A 401 here says nothing about routing.
+    //
+    // Discovery therefore finds nothing, which is what fallbackModels is for.
+    // It is safe here because the catch that consumes it now refuses to fall
+    // back on a 401/403 (see isAuthFailure), so a mistyped key still fails the
+    // login instead of being saved as a provider that fails every completion.
+    fallbackModels: ["pareto"],
     keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
   },
   kilo: {
@@ -656,6 +668,24 @@ export function isLocalUrl(url: string): boolean {
 /** Cap on how much of an upstream error body is surfaced to the user. */
 export const MAX_ERROR_BODY = 500;
 
+/** An Error from fetchModels carrying the upstream HTTP status, when it had one. */
+export type CatalogError = Error & { status?: number };
+
+/**
+ * True when a catalog fetch failed because the credential was rejected.
+ *
+ * This is the distinction that makes fallbackModels safe to use. A fallback
+ * list exists for endpoints that publish no catalog, so it should stand in for
+ * a missing endpoint and never for a bad key: falling back on a 401 would save
+ * a provider that looks healthy in /model and fails on every completion, which
+ * is worse than refusing the login. A network error (no status) is treated as
+ * non-auth, so an offline or unreachable host still gets the fallback.
+ */
+export function isAuthFailure(err: unknown): boolean {
+  const status = (err as CatalogError | null)?.status;
+  return status === 401 || status === 403;
+}
+
 /** Optional per-provider overrides controlling how /models is fetched. */
 interface FetchOverrides {
   /** Full URL to fetch instead of `<baseUrl>/models`. */
@@ -692,7 +722,12 @@ export async function fetchModels(
     const snippet = body.length > MAX_ERROR_BODY
       ? `${body.slice(0, MAX_ERROR_BODY)}… (truncated)`
       : body;
-    throw new Error(`HTTP ${resp.status} from ${url}: ${snippet}`);
+    // Carry the status on the error. Callers need to tell "this endpoint is
+    // not there" from "your key is wrong", and parsing it back out of the
+    // message would break the moment the wording changes.
+    const err = new Error(`HTTP ${resp.status} from ${url}: ${snippet}`) as CatalogError;
+    err.status = resp.status;
+    throw err;
   }
 
   // Normalize the various shapes /models can return:
@@ -1032,7 +1067,7 @@ export default async function (pi: ExtensionAPI) {
           keepTask: tpl.modelsKeepTask,
         });
       } catch (err) {
-        if (tpl.fallbackModels && tpl.fallbackModels.length > 0) {
+        if (tpl.fallbackModels && tpl.fallbackModels.length > 0 && !isAuthFailure(err)) {
           ctx.ui.notify(
             `Could not fetch model list from ${tpl.displayName} (${err}).\nUsing built-in model list instead.`,
             "warning"

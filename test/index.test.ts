@@ -29,6 +29,7 @@ import {
   buildProviderModels,
   compatKey,
   fetchModels,
+  isAuthFailure,
   isLocalUrl,
   mergeModelMetadata,
   normalizeInput,
@@ -405,5 +406,58 @@ describe("supporting behavior relied on by the fixes", () => {
     globalThis.fetch = (async () => ({ ok: true, json: async () => ({ nope: 1 }) })) as any;
     t.after(() => { globalThis.fetch = original; });
     await assert.rejects(() => fetchModels("https://x.example/v1", null), /Unexpected model catalog payload/);
+  });
+});
+
+describe("catalog failures: a missing endpoint is not a bad key", () => {
+  const respond = (status: number) => (async () => ({
+    ok: false,
+    status,
+    text: async () => "{}",
+  })) as any;
+
+  test("fetchModels carries the upstream status on the error", async (t) => {
+    const original = globalThis.fetch;
+    t.after(() => { globalThis.fetch = original; });
+    for (const status of [401, 403, 404, 500]) {
+      globalThis.fetch = respond(status);
+      const err = await fetchModels("https://x.example/v1", "k").then(
+        () => null,
+        (e) => e,
+      );
+      assert.equal(err.status, status, `status ${status} must reach the caller`);
+    }
+  });
+
+  test("isAuthFailure separates a rejected key from a missing endpoint", () => {
+    // 401/403 mean the credential was refused, so a fallback list must not
+    // stand in: it would save a provider that fails every completion.
+    assert.equal(isAuthFailure({ status: 401 }), true);
+    assert.equal(isAuthFailure({ status: 403 }), true);
+    // 404 is the Unbiased AI case: the key was accepted, the path is absent.
+    assert.equal(isAuthFailure({ status: 404 }), false);
+    assert.equal(isAuthFailure({ status: 500 }), false);
+    // A network error carries no status; treat it as non-auth so an offline
+    // host still gets the fallback rather than a hard failure.
+    assert.equal(isAuthFailure(new Error("fetch failed")), false);
+    assert.equal(isAuthFailure(null), false);
+    assert.equal(isAuthFailure(undefined), false);
+  });
+
+  test("unbiased_ai ships a fallback list, because it publishes no catalog", () => {
+    // GET /v1/models returns 404 "unknown_url" with a valid key, so discovery
+    // finds nothing and /compat-login would refuse to save without this.
+    assert.deepEqual(TEMPLATES.unbiased_ai.fallbackModels, ["pareto"]);
+  });
+
+  test("every fallback list names at least one model", () => {
+    for (const [key, tpl] of Object.entries(TEMPLATES)) {
+      if (tpl.fallbackModels !== undefined) {
+        assert.ok(
+          tpl.fallbackModels.length > 0,
+          `${key}: an empty fallback list is never reached and hides the failure`,
+        );
+      }
+    }
   });
 });
