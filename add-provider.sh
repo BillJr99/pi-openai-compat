@@ -96,6 +96,12 @@ const BUILTIN = {
     keyless: false,
     keyHint: "platform.agnes-ai.com → API Key management (keys look like sk-...; docs at wiki.agnes-ai.com)",
   },
+  xiaomi_mimo: {
+    displayName: "Xiaomi MiMo",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    keyless: false,
+    keyHint: "platform.xiaomimimo.com → API Keys (docs at mimo.mi.com/docs)",
+  },
 };
 
 // README "Auth" column text for the built-in providers, used only by patchreadme.
@@ -110,6 +116,7 @@ const BUILTIN_AUTH = {
   modelscope: "`ms-...` SDK token from modelscope.cn/my/myaccesstoken",
   aion_labs: "API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs)",
   agnes_ai: "`sk-...` key from the Agnes console at platform.agnes-ai.com (wiki.agnes-ai.com)",
+  xiaomi_mimo: "API key from the Xiaomi MiMo console at platform.xiaomimimo.com → API Keys (mimo.mi.com/docs)",
 };
 
 /**

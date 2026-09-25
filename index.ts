@@ -476,6 +476,19 @@ export const TEMPLATES: Record<string, {
     // without a key, and a filter that misses would register nothing.
     keyHint: "platform.agnes-ai.com → API Key management (keys look like sk-...; docs at wiki.agnes-ai.com)",
   },
+  xiaomi_mimo: {
+    displayName: "Xiaomi MiMo",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    keyless: false,
+    // Xiaomi MiMo API Open Platform. GET /v1/models is key-gated (it answers
+    // 401 "invalid_key" JSON without a key, where an unknown /v1 path answers
+    // a 404 HTML page), which is exactly what fetchModels already sends, so no
+    // modelsUrl or fallbackModels override is needed. The catalog may also
+    // carry non-chat ids (e.g. mimo-v2-tts); no modelFilter is set because the
+    // live id list could not be confirmed without a key, and a filter that
+    // misses would register nothing.
+    keyHint: "platform.xiaomimimo.com → API Keys (docs at mimo.mi.com/docs)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
