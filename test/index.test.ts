@@ -27,6 +27,8 @@ import {
   MAX_ERROR_BODY,
   CONFIG_FILE_MODE,
   buildProviderModels,
+  catalogHeaders,
+  ANTHROPIC_VERSION,
   compatKey,
   fetchModels,
   isAuthFailure,
@@ -459,5 +461,40 @@ describe("catalog failures: a missing endpoint is not a bad key", () => {
         );
       }
     }
+  });
+});
+
+describe("catalog auth headers", () => {
+  test("OpenAI-compatible catalogs get the key as a Bearer token", () => {
+    const h = catalogHeaders("https://llm.jetstream-cloud.org/api/models", "k");
+    assert.equal(h["Authorization"], "Bearer k");
+    assert.equal(h["x-api-key"], undefined);
+  });
+
+  test("api.anthropic.com gets x-api-key + anthropic-version and no Bearer", () => {
+    // Anthropic's /v1/models answers 401 to a Bearer API key; a 401 aborts
+    // /compat-login, so sending Bearer here would make the template unusable.
+    const h = catalogHeaders("https://api.anthropic.com/v1/models", "sk-ant-x");
+    assert.equal(h["x-api-key"], "sk-ant-x");
+    assert.equal(h["anthropic-version"], ANTHROPIC_VERSION);
+    assert.equal(h["Authorization"], undefined);
+  });
+
+  test("a lookalike host does not get Anthropic headers", () => {
+    const h = catalogHeaders("https://api.anthropic.com.evil.example/v1/models", "k");
+    assert.equal(h["x-api-key"], undefined);
+    assert.equal(h["Authorization"], "Bearer k");
+  });
+
+  test("no key sends no auth header at all", () => {
+    assert.deepEqual(catalogHeaders("https://api.anthropic.com/v1/models", null), {
+      Accept: "application/json",
+    });
+  });
+
+  test("anthropic and jetstream2 templates point at their documented bases", () => {
+    assert.equal(TEMPLATES.anthropic.baseUrl, "https://api.anthropic.com/v1");
+    assert.equal(TEMPLATES.openai.baseUrl, "https://api.openai.com/v1");
+    assert.equal(TEMPLATES.jetstream2.baseUrl, "https://llm.jetstream-cloud.org/api");
   });
 });
