@@ -74,6 +74,9 @@ If pi is already running when you install, type `/reload` first.
 | **Aion Labs** | `https://api.aionlabs.ai/v1` | API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs) |
 | **Agnes AI** | `https://apihub.agnes-ai.com/v1` | `sk-...` key from the Agnes console at platform.agnes-ai.com (wiki.agnes-ai.com) |
 | **Xiaomi MiMo** | `https://api.xiaomimimo.com/v1` | API key from the Xiaomi MiMo console at platform.xiaomimimo.com → API Keys (mimo.mi.com/docs) |
+| **OpenAI** | `https://api.openai.com/v1` | `sk-...` key from platform.openai.com/api-keys (paid) |
+| **Anthropic (Claude)** | `https://api.anthropic.com/v1` | `sk-ant-...` key from console.anthropic.com/settings/keys (paid); catalog fetched with `x-api-key` |
+| **Jetstream2 (IU / ACCESS)** | `https://llm.jetstream-cloud.org/api` | Open WebUI API key: sign in at llm.jetstream-cloud.org with ACCESS → Settings → Account → API keys |
 | **Ollama (local)** | `http://localhost:11434/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |

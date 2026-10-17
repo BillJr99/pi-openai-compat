@@ -500,6 +500,46 @@ export const TEMPLATES: Record<string, {
     // misses would register nothing.
     keyHint: "platform.xiaomimimo.com → API Keys (docs at mimo.mi.com/docs)",
   },
+  openai: {
+    displayName: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    keyless: false,
+    // pi also ships OpenAI as a built-in provider; this template exists so an
+    // OpenAI key can sit alongside the other compat providers. GET /v1/models
+    // takes the same Bearer key and returns the plain {"data": [...]} shape.
+    // The catalog also lists embedding, audio and image models that cannot
+    // serve chat/completions; no modelFilter is set, because a curated list
+    // would go stale faster than OpenAI renames its chat models.
+    keyHint: "platform.openai.com/api-keys (paid; keys look like sk-...)",
+  },
+  anthropic: {
+    displayName: "Anthropic (Claude)",
+    baseUrl: "https://api.anthropic.com/v1",
+    keyless: false,
+    // Anthropic's OpenAI SDK compatibility layer: chat/completions accepts the
+    // API key as a Bearer token, but GET /v1/models authenticates only with
+    // x-api-key + anthropic-version, so fetchModels switches headers for this
+    // host (see catalogHeaders). The catalog is {"data": [{id, ...}]}.
+    // pi's built-in Anthropic provider speaks the native Messages API and
+    // supports more (prompt caching, extended thinking); prefer it when you
+    // do not need Claude registered as a compat provider.
+    keyHint: "console.anthropic.com/settings/keys (paid; keys look like sk-ant-...)",
+    fallbackModels: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+  },
+  jetstream2: {
+    displayName: "Jetstream2 (IU / ACCESS)",
+    baseUrl: "https://llm.jetstream-cloud.org/api",
+    keyless: false,
+    // The Open WebUI proxy in front of Jetstream2's hosted models, the only
+    // route reachable from the open internet: chat at /api/chat/completions,
+    // catalog at /api/models in the {"data": [...]} shape, Bearer auth with an
+    // Open WebUI key. The per-model vLLM routes (/<model>/v1) answer 401
+    // outside Jetstream2/IU networks. fallbackModels holds the four models
+    // documented at docs.jetstream-cloud.org/inference-service (October 2026)
+    // and is used only if the catalog endpoint is missing, never on a 401.
+    keyHint: "llm.jetstream-cloud.org → sign in with ACCESS → your name (lower left) → Settings → Account → API keys",
+    fallbackModels: ["gpt-oss-120b", "muse-glimmer", "qwen-3.8-27b", "gemma-4-31b-it"],
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
@@ -720,6 +760,36 @@ interface FetchOverrides {
   keepTask?: string;
 }
 
+/** Version header Anthropic requires on its native endpoints, /v1/models included. */
+export const ANTHROPIC_VERSION = "2023-06-01";
+
+/**
+ * Request headers for a model-catalog fetch.
+ *
+ * Every OpenAI-compatible catalog takes the key as a Bearer token. Anthropic
+ * is the exception: its OpenAI compatibility layer accepts Bearer on
+ * chat/completions, but GET /v1/models authenticates only with x-api-key plus
+ * anthropic-version, and answers 401 to a Bearer API key. The host check keeps
+ * this to api.anthropic.com, so no other provider ever sees these headers.
+ */
+export function catalogHeaders(url: string, apiKey: string | null): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (!apiKey) return headers;
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    // An unparsable URL fails in fetch() itself; Bearer is the safe default here.
+  }
+  if (host === "api.anthropic.com") {
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = ANTHROPIC_VERSION;
+  } else {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
 export async function fetchModels(
   baseUrl: string,
   apiKey: string | null,
@@ -732,10 +802,7 @@ export async function fetchModels(
   const idField = overrides.idField ?? "id";
   const keepTask = overrides.keepTask;
 
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-
-  const resp = await fetch(url, { headers });
+  const resp = await fetch(url, { headers: catalogHeaders(url, apiKey) });
   if (!resp.ok) {
     // This extension never echoes the Authorization header, but the body is
     // the upstream's: some gateways reflect parts of the submitted credential

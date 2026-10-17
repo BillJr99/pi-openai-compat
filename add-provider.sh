@@ -108,6 +108,26 @@ const BUILTIN = {
     keyless: false,
     keyHint: "platform.xiaomimimo.com → API Keys (docs at mimo.mi.com/docs)",
   },
+  openai: {
+    displayName: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    keyless: false,
+    keyHint: "platform.openai.com/api-keys (paid; keys look like sk-...)",
+  },
+  anthropic: {
+    displayName: "Anthropic (Claude)",
+    baseUrl: "https://api.anthropic.com/v1",
+    keyless: false,
+    keyHint: "console.anthropic.com/settings/keys (paid; keys look like sk-ant-...)",
+    fallbackModels: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+  },
+  jetstream2: {
+    displayName: "Jetstream2 (IU / ACCESS)",
+    baseUrl: "https://llm.jetstream-cloud.org/api",
+    keyless: false,
+    keyHint: "llm.jetstream-cloud.org → sign in with ACCESS → your name (lower left) → Settings → Account → API keys",
+    fallbackModels: ["gpt-oss-120b", "muse-glimmer", "qwen-3.8-27b", "gemma-4-31b-it"],
+  },
 };
 
 // README "Auth" column text for the built-in providers, used only by patchreadme.
@@ -124,6 +144,9 @@ const BUILTIN_AUTH = {
   aion_labs: "API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs)",
   agnes_ai: "`sk-...` key from the Agnes console at platform.agnes-ai.com (wiki.agnes-ai.com)",
   xiaomi_mimo: "API key from the Xiaomi MiMo console at platform.xiaomimimo.com → API Keys (mimo.mi.com/docs)",
+  openai: "`sk-...` key from platform.openai.com/api-keys (paid)",
+  anthropic: "`sk-ant-...` key from console.anthropic.com/settings/keys (paid); catalog fetched with `x-api-key`",
+  jetstream2: "Open WebUI API key: sign in at llm.jetstream-cloud.org with ACCESS → Settings → Account → API keys",
 };
 
 /**
@@ -458,9 +481,20 @@ FETCH_URL="${MODELS_URL:-$BASE_URL/models}"
 echo
 echo "Fetching models from $FETCH_URL …"
 BODY="$TMPDIR_RUN/models.json"
+# Same rule as catalogHeaders() in index.ts: Anthropic's /v1/models takes the
+# key as x-api-key + anthropic-version and answers 401 to a Bearer API key.
+AUTH_ARGS=()
+if [ -n "$API_KEY" ]; then
+  FETCH_HOST="${FETCH_URL#*://}"; FETCH_HOST="${FETCH_HOST%%/*}"; FETCH_HOST="${FETCH_HOST%%:*}"
+  if [ "$(printf '%s' "$FETCH_HOST" | tr '[:upper:]' '[:lower:]')" = "api.anthropic.com" ]; then
+    AUTH_ARGS=(-H "x-api-key: $API_KEY" -H "anthropic-version: 2023-06-01")
+  else
+    AUTH_ARGS=(-H "Authorization: Bearer $API_KEY")
+  fi
+fi
 HTTP_CODE="$(curl -sS -o "$BODY" -w '%{http_code}' --max-time 45 \
   -H 'Accept: application/json' \
-  ${API_KEY:+-H "Authorization: Bearer $API_KEY"} \
+  ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} \
   "$FETCH_URL" || echo 000)"
 
 MODELS_JSON=""
