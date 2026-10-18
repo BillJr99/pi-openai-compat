@@ -31,6 +31,7 @@ import {
   ANTHROPIC_VERSION,
   compatKey,
   fetchModels,
+  filterProviderEntries,
   isAuthFailure,
   isLocalUrl,
   mergeModelMetadata,
@@ -340,6 +341,17 @@ describe("Finding 7 — upstream error bodies are truncated", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("supporting behavior relied on by the fixes", () => {
+  test("provider picker filters live by display name or internal key", () => {
+    const providers = [
+      { key: "token_harbor", label: "Token Harbor" },
+      { key: "openrouter", label: "OpenRouter" },
+    ];
+    assert.deepEqual(filterProviderEntries(providers, ""), providers);
+    assert.deepEqual(filterProviderEntries(providers, "TOKEN"), [providers[0]]);
+    assert.deepEqual(filterProviderEntries(providers, "openrouter"), [providers[1]]);
+    assert.deepEqual(filterProviderEntries(providers, "missing"), []);
+  });
+
   test("mergeModelMetadata carries hand-edited fields forward (PR #25/#28)", () => {
     const merged = mergeModelMetadata(
       [{ id: "a", contextWindow: 1_000_000, reasoning: true, input: ["text", "image"],

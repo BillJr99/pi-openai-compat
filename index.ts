@@ -548,6 +548,16 @@ export const TEMPLATES: Record<string, {
   },
 };
 
+/** Filter provider choices by their visible name or internal template key. */
+export function filterProviderEntries<T extends { key: string; label: string }>(
+  entries: T[],
+  query: string,
+): T[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return entries;
+  return entries.filter(({ key, label }) => `${label} ${key}`.toLowerCase().includes(normalized));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1071,11 +1081,92 @@ export default async function (pi: ExtensionAPI) {
     description: "Fetch models from an OpenAI-compatible endpoint and add it to /model",
     handler: async (args, ctx) => {
       // Step 1 — pick provider template
-      const keys = Object.keys(TEMPLATES);
-      const labels = keys.map((k) => TEMPLATES[k].displayName);
-      const selectedLabel = await ctx.ui.select("Select Provider", labels);
-      if (!selectedLabel) { ctx.ui.notify("Login cancelled.", "info"); return; }
-      const key = keys[labels.indexOf(selectedLabel)];
+      const entries = Object.keys(TEMPLATES).map((key) => ({
+        key,
+        label: TEMPLATES[key].displayName,
+      }));
+      let selectedKey: string | undefined;
+      const mode = (ctx as typeof ctx & { mode?: string }).mode;
+      if (ctx.hasUI && mode !== "rpc") {
+        // Prefer Pi's current TUI package name, with the legacy name retained
+        // for older Pi installations. Defer loading so non-TUI/test imports do not need Pi internals.
+        const currentTuiModule = "@earendil-works/pi-tui";
+        const legacyTuiModule = "@mariozechner/pi-tui";
+        let tuiComponents: any;
+        try { tuiComponents = await import(currentTuiModule); }
+        catch { tuiComponents = await import(legacyTuiModule); }
+        const { Input, SelectList } = tuiComponents;
+        selectedKey = await ctx.ui.custom<string | undefined>((tui, theme, keybindings, done) => {
+            const input = new Input({ placeholder: "Type to filter providers…" });
+            const visibleCount = Math.max(3, Math.min(12, tui.terminal.rows - 10));
+            let matches = entries;
+            let selectedIndex = 0;
+            let list: {
+              setSelectedIndex(index: number): void;
+              render(width: number): string[];
+              invalidate(): void;
+            };
+
+            const updateList = () => {
+              matches = filterProviderEntries(entries, input.getValue());
+              selectedIndex = Math.min(selectedIndex, Math.max(0, matches.length - 1));
+              list = new SelectList(
+                matches.map(({ key, label }) => ({ value: key, label: label || key })),
+                visibleCount,
+                {
+                  selectedPrefix: (text: string) => theme.fg("accent", text),
+                  selectedText: (text: string) => theme.fg("accent", text),
+                  description: (text: string) => theme.fg("muted", text),
+                  scrollInfo: (text: string) => theme.fg("dim", text),
+                  noMatch: (text: string) => theme.fg("warning", text),
+                },
+              );
+              list.setSelectedIndex(selectedIndex);
+            };
+            updateList();
+
+            return {
+              get focused() { return input.focused; },
+              set focused(value: boolean) { input.focused = value; },
+              render(width: number) {
+                return [
+                  theme.fg("accent", theme.bold("Select Provider")),
+                  "",
+                  ...input.render(width),
+                  ...list.render(width),
+                  "",
+                  theme.fg("dim", "Type to filter · ↑↓ move · Enter select · Esc cancel"),
+                ];
+              },
+              invalidate() { input.invalidate(); list.invalidate(); },
+              handleInput(data: string) {
+                if (keybindings.matches(data, "tui.select.cancel")) { done(undefined); return; }
+                if (keybindings.matches(data, "tui.select.confirm")) {
+                  const selected = matches[selectedIndex];
+                  if (selected) done(selected.key);
+                  return;
+                }
+                if (keybindings.matches(data, "tui.select.up") || keybindings.matches(data, "tui.select.down")) {
+                  if (matches.length) {
+                    const direction = keybindings.matches(data, "tui.select.up") ? -1 : 1;
+                    selectedIndex = (selectedIndex + direction + matches.length) % matches.length;
+                    list.setSelectedIndex(selectedIndex);
+                  }
+                  tui.requestRender();
+                  return;
+                }
+                input.handleInput(data);
+                updateList();
+                tui.requestRender();
+              },
+            };
+          });
+      } else {
+        const selectedLabel = await ctx.ui.select("Select Provider", entries.map(({ label }) => label));
+        selectedKey = entries.find((entry) => entry.label === selectedLabel)?.key;
+      }
+      if (!selectedKey) { ctx.ui.notify("Login cancelled.", "info"); return; }
+      const key = selectedKey;
       const tpl = TEMPLATES[key];
 
       // Step 2 — base URL
