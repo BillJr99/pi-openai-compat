@@ -334,6 +334,17 @@ export const TEMPLATES: Record<string, {
     keyless: false,
     promptUrl: true,
   },
+  docker_model_runner: {
+    displayName: "Docker Model Runner (local)",
+    // Docker Desktop / Docker Engine's built-in runner. The host port only
+    // answers once TCP is enabled (`docker desktop enable model-runner --tcp
+    // 12434`); from inside a container use
+    // http://model-runner.docker.internal/engines/v1 instead. Not keyless, for
+    // the same reason as ollama: the prompt says the key is optional.
+    baseUrl: "http://localhost:12434/engines/v1",
+    keyless: false,
+    promptUrl: true,
+  },
   ollama_cloud: {
     displayName: "Ollama Cloud",
     baseUrl: "https://ollama.com/v1",

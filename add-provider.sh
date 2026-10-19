@@ -128,6 +128,12 @@ const BUILTIN = {
     keyHint: "llm.jetstream-cloud.org → sign in with ACCESS → your name (lower left) → Settings → Account → API keys",
     fallbackModels: ["gpt-oss-120b", "muse-glimmer", "qwen-3.8-27b", "gemma-4-31b-it"],
   },
+  docker_model_runner: {
+    displayName: "Docker Model Runner (local)",
+    baseUrl: "http://localhost:12434/engines/v1",
+    keyless: false,
+    promptUrl: true,
+  },
 };
 
 // README "Auth" column text for the built-in providers, used only by patchreadme.
@@ -147,6 +153,7 @@ const BUILTIN_AUTH = {
   openai: "`sk-...` key from platform.openai.com/api-keys (paid)",
   anthropic: "`sk-ant-...` key from console.anthropic.com/settings/keys (paid); catalog fetched with `x-api-key`",
   jetstream2: "Open WebUI API key: sign in at llm.jetstream-cloud.org with ACCESS → Settings → Account → API keys",
+  docker_model_runner: "Optional bearer token; leave blank for a default local install",
 };
 
 /**
@@ -453,7 +460,9 @@ case "$BASE_URL" in
 esac
 
 API_KEY=""
-if [ "$KEYLESS" = "true" ] || [ "$IS_LOCAL" = "1" ]; then
+# A template with no keyHint (Ollama, Docker Model Runner, llmproxy, Custom)
+# takes an optional key, as in /compat-login, whatever host the URL points at.
+if [ "$KEYLESS" = "true" ] || [ "$IS_LOCAL" = "1" ] || [ -z "$KEY_HINT" ]; then
   echo "  (this endpoint is keyless — press Enter to skip, or paste a token if yours requires one)"
   read -r -s -p "API key (optional): " API_KEY; echo
 else
@@ -579,11 +588,12 @@ if [ "$IN_FILE" != "1" ] && [ "$TPL_KEY" != "custom" ]; then
   read -r -p "Add it to index.ts and the README table too? [y/N]: " yn
   case "${yn:-N}" in
     [Yy]*)
-      TPLJSON="$(DISPLAY_NAME="$DISPLAY_NAME" BASE_URL="$BASE_URL" KEYLESS="$KEYLESS" KEY_HINT="$KEY_HINT" node -e '
+      TPLJSON="$(DISPLAY_NAME="$DISPLAY_NAME" BASE_URL="$BASE_URL" KEYLESS="$KEYLESS" KEY_HINT="$KEY_HINT" PROMPT_URL="$PROMPT_URL" node -e '
 const e=process.env;
 process.stdout.write(JSON.stringify({
   displayName: e.DISPLAY_NAME, baseUrl: e.BASE_URL,
-  keyless: e.KEYLESS === "true", keyHint: e.KEY_HINT || undefined }));')"
+  keyless: e.KEYLESS === "true", keyHint: e.KEY_HINT || undefined,
+  promptUrl: e.PROMPT_URL === "true" || undefined }));')"
       echo "  index.ts:  $(node_helper patch-index "$INDEX_TS" "$TPL_KEY" "$TPLJSON")"
       echo "  README.md: $(node_helper patch-readme "$README_MD" "$TPL_KEY" "$DISPLAY_NAME" "$BASE_URL")"
       ;;

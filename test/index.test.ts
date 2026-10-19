@@ -175,10 +175,10 @@ describe("Finding 2 — one bad provider must not take down the extension", () =
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("Finding 3 — locally-hosted templates must still offer a key prompt", () => {
-  test("ollama and llmproxy are not marked keyless", () => {
+  test("ollama, docker_model_runner and llmproxy are not marked keyless", () => {
     // They are routinely exposed on a LAN/.local host behind a key. Marking
     // them keyless skips the wizard's key prompt with no way to supply one.
-    for (const key of ["ollama", "llmproxy"]) {
+    for (const key of ["ollama", "docker_model_runner", "llmproxy"]) {
       assert.equal(TEMPLATES[key].keyless, false, `${key} must prompt for an optional key`);
     }
   });
