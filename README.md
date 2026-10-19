@@ -79,6 +79,7 @@ If pi is already running when you install, type `/reload` first.
 | **Jetstream2 (IU / ACCESS)** | `https://llm.jetstream-cloud.org/api` | Open WebUI API key: sign in at llm.jetstream-cloud.org with ACCESS → Settings → Account → API keys |
 | **Ollama (local)** | `http://localhost:11434/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
+| **Docker Model Runner (local)** | `http://localhost:12434/engines/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **llmproxy** | `http://localhost:8080/v1` (editable) | Keyless by default; bearer token if your instance requires one |
 | **Custom** | Any URL you supply | Optional bearer token |
 
@@ -128,7 +129,7 @@ Three commands are available; `/compat-login` is the only one you need to get st
 Walks you through a short wizard:
 
 1. Select a provider from the list above (or choose Custom).
-2. For Ollama, llmproxy and Custom, confirm or change the base URL.
+2. For Ollama, Docker Model Runner, llmproxy and Custom, confirm or change the base URL.
 3. Enter your API key.  For the local templates the key is optional: press
    Enter to skip it on a default install, or supply one if you have put the
    server behind a reverse proxy or exposed it on your LAN.  The prompt is
@@ -408,6 +409,11 @@ pi remove  npm:@billjr99/pi-openai-compat          # uninstall
 Verify the base URL does not have a trailing slash and ends with `/v1`.
 Confirm the API key is correct and has model-access permissions.
 For Ollama: ensure `ollama serve` is running.
+For Docker Model Runner: the runner must be listening on a host TCP port
+(`docker desktop enable model-runner --tcp 12434` on Docker Desktop; Docker
+Engine on Linux listens on 12434 once the `docker-model-plugin` package is
+installed). Check with `curl http://localhost:12434/engines/v1/models`. From
+inside a container, use `http://model-runner.docker.internal/engines/v1`.
 For self-hosted Open WebUI: the OpenAI-compatible API is under `/api/v1`, not
 the SPA root — e.g. `https://your-host/api/v1`, not `https://your-host`.
 Hitting the root returns the HTML SPA and `/compat-login` fails with a JSON
@@ -429,6 +435,8 @@ account).
 
 **No models appear after login**
 For Ollama: pull at least one model first (`ollama pull llama3`).
+For Docker Model Runner: pull at least one model first (`docker model pull ai/llama3.2`);
+its model ids are namespaced, e.g. `ai/llama3.2`.
 For OpenRouter: some keys are restricted to free-tier models only.
 For NIM: confirm your account has inference access enabled.
 
