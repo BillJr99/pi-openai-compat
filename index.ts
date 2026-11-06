@@ -1057,7 +1057,9 @@ export default async function (pi: ExtensionAPI) {
               failed.push(p.displayName);
             }
           } else {
-            failed.push(p.displayName);
+            // Reachable but no models yet (e.g. a local runner with nothing
+            // loaded). Not a connectivity failure; stay quiet and leave it
+            // saved so /compat-refresh can register it later.
           }
         } catch {
           failed.push(p.displayName);
@@ -1285,7 +1287,25 @@ export default async function (pi: ExtensionAPI) {
         }
       }
       if (!models.length) {
-        ctx.ui.notify("Connected but no models returned. Check URL and key.", "error");
+        // An empty catalog is not a failure: local runners (Docker Model
+        // Runner, Ollama, LM Studio) legitimately report zero models until one
+        // is pulled or loaded. Save the provider so /compat-refresh can pick
+        // models up later, but skip registration — pi has nothing to list yet.
+        config.providers[key] = {
+          displayName: tpl.displayName,
+          baseUrl,
+          apiKey,
+          cachedModels: [],
+          modelsUrl,
+          modelsIdField: tpl.modelsIdField,
+          modelsKeepTask: tpl.modelsKeepTask,
+        };
+        saveConfig(config);
+        ctx.ui.notify(
+          `Connected to ${tpl.displayName}, but it reports no models yet. ` +
+          `Saved — load or pull a model, then run /compat-refresh to add it to /model.`,
+          "warning"
+        );
         return;
       }
 
@@ -1369,6 +1389,7 @@ export default async function (pi: ExtensionAPI) {
 
       const refreshed: string[] = [];
       const failed: string[] = [];
+      const empty: string[] = [];
       for (const key of keys) {
         const p = config.providers[key];
         ctx.ui.notify(`Refreshing ${p.displayName} …`, "info");
@@ -1389,7 +1410,8 @@ export default async function (pi: ExtensionAPI) {
               failed.push(p.displayName);
             }
           } else {
-            failed.push(p.displayName);
+            // Reachable but empty: not an error. Any existing cache is kept.
+            empty.push(p.displayName);
           }
         } catch {
           failed.push(p.displayName);
@@ -1398,6 +1420,13 @@ export default async function (pi: ExtensionAPI) {
 
       if (refreshed.length > 0) {
         ctx.ui.notify(`Refreshed: ${refreshed.join(", ")}.`, "info");
+      }
+      if (empty.length > 0) {
+        ctx.ui.notify(
+          `${empty.join(", ")} reported no models — nothing changed. ` +
+          `Load or pull a model, then run /compat-refresh again.`,
+          "info"
+        );
       }
       if (failed.length > 0) {
         ctx.ui.notify(
@@ -1434,7 +1463,13 @@ export default async function (pi: ExtensionAPI) {
       }
 
       const name = config.providers[key].displayName;
-      pi.unregisterProvider(compatKey(key));
+      // A provider saved with no models was never registered with pi, so
+      // unregistering it may throw; removal from config must still proceed.
+      try {
+        pi.unregisterProvider(compatKey(key));
+      } catch (e) {
+        console.error(`[openai-compat:compat-logout] unregister "${key}"`, e);
+      }
       delete config.providers[key];
       saveConfig(config);
 
