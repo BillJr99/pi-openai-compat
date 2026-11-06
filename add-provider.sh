@@ -128,6 +128,12 @@ const BUILTIN = {
     keyHint: "llm.jetstream-cloud.org → sign in with ACCESS → your name (lower left) → Settings → Account → API keys",
     fallbackModels: ["gpt-oss-120b", "muse-glimmer", "qwen-3.8-27b", "gemma-4-31b-it"],
   },
+  openmathmodel: {
+    displayName: "Open Math Model (Open Math OS)",
+    baseUrl: "https://os.openmathmodel.org/v1",
+    keyless: false,
+    keyHint: "team API key from Open Math OS at os.openmathmodel.org (keys look like nuc_ak_...; teams by application at openmathmodel.org)",
+  },
   docker_model_runner: {
     displayName: "Docker Model Runner (local)",
     baseUrl: "http://localhost:12434/engines/v1",
@@ -154,6 +160,7 @@ const BUILTIN_AUTH = {
   anthropic: "`sk-ant-...` key from console.anthropic.com/settings/keys (paid); catalog fetched with `x-api-key`",
   jetstream2: "Open WebUI API key: sign in at llm.jetstream-cloud.org with ACCESS → Settings → Account → API keys",
   docker_model_runner: "Optional bearer token; leave blank for a default local install",
+  openmathmodel: "`nuc_ak_...` team API key from Open Math OS at os.openmathmodel.org (teams by application at openmathmodel.org)",
 };
 
 /**

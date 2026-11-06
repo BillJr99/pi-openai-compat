@@ -509,4 +509,9 @@ describe("catalog auth headers", () => {
     assert.equal(TEMPLATES.openai.baseUrl, "https://api.openai.com/v1");
     assert.equal(TEMPLATES.jetstream2.baseUrl, "https://llm.jetstream-cloud.org/api");
   });
+
+  test("openmathmodel template points at the Open Math OS API and needs a key", () => {
+    assert.equal(TEMPLATES.openmathmodel.baseUrl, "https://os.openmathmodel.org/v1");
+    assert.equal(TEMPLATES.openmathmodel.keyless, false);
+  });
 });

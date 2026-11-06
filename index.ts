@@ -551,6 +551,19 @@ export const TEMPLATES: Record<string, {
     keyHint: "llm.jetstream-cloud.org → sign in with ACCESS → your name (lower left) → Settings → Account → API keys",
     fallbackModels: ["gpt-oss-120b", "muse-glimmer", "qwen-3.8-27b", "gemma-4-31b-it"],
   },
+  openmathmodel: {
+    displayName: "Open Math Model (Open Math OS)",
+    baseUrl: "https://os.openmathmodel.org/v1",
+    keyless: false,
+    // Open Math OS, the SAIR Foundation's math-research platform. Keys are
+    // per-team (teams are granted by application at openmathmodel.org) and
+    // look like nuc_ak_ followed by 43 URL-safe characters. GET /v1/models is
+    // key-gated (401 JSON "unauthenticated" without a key), which is exactly
+    // what fetchModels already sends, so no modelsUrl or fallbackModels
+    // override is needed. No modelFilter is set because the live id list could
+    // not be confirmed without a key (verified November 2026).
+    keyHint: "team API key from Open Math OS at os.openmathmodel.org (keys look like nuc_ak_...; teams by application at openmathmodel.org)",
+  },
   custom: {
     displayName: "Custom Endpoint",
     baseUrl: "",
