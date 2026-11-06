@@ -77,6 +77,7 @@ If pi is already running when you install, type `/reload` first.
 | **OpenAI** | `https://api.openai.com/v1` | `sk-...` key from platform.openai.com/api-keys (paid) |
 | **Anthropic (Claude)** | `https://api.anthropic.com/v1` | `sk-ant-...` key from console.anthropic.com/settings/keys (paid); catalog fetched with `x-api-key` |
 | **Jetstream2 (IU / ACCESS)** | `https://llm.jetstream-cloud.org/api` | Open WebUI API key: sign in at llm.jetstream-cloud.org with ACCESS → Settings → Account → API keys |
+| **Open Math Model (Open Math OS)** | `https://os.openmathmodel.org/v1` | `nuc_ak_...` team API key from Open Math OS at os.openmathmodel.org (teams by application at openmathmodel.org) |
 | **Ollama (local)** | `http://localhost:11434/v1` (editable) | Optional bearer token; leave blank for a default local install |
 | **Ollama Cloud** | `https://ollama.com/v1` | Ollama Cloud API key from ollama.com |
 | **Docker Model Runner (local)** | `http://localhost:12434/engines/v1` (editable) | Optional bearer token; leave blank for a default local install |
