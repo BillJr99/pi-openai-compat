@@ -157,6 +157,12 @@ export const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "openrouter.ai/keys",
   },
+  demonroute: {
+    displayName: "Demon Route",
+    baseUrl: "https://api.demonroute.com/v1",
+    keyless: false,
+    keyHint: "demonroute.com (Console → Keys)",
+  },
   nvidia_nim: {
     displayName: "NVIDIA NIM",
     baseUrl: "https://integrate.api.nvidia.com/v1",
