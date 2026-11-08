@@ -38,6 +38,7 @@ If pi is already running when you install, type `/reload` first.
 | Provider | Default base URL | Auth |
 |---|---|---|
 | **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-...` from openrouter.ai/keys |
+| **Demon Route** | `https://api.demonroute.com/v1` | API key from demonroute.com (Console → Keys) |
 | **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | `nvapi-...` from build.nvidia.com |
 | **Nous Research Portal** | `https://inference-api.nousresearch.com/v1` | Nous Portal API key |
 | **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | API key from aistudio.google.com/apikey |
