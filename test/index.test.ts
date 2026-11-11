@@ -353,11 +353,51 @@ describe("reasoning capabilities are discovered instead of silently disabled", (
     for (const model of models) {
       assert.equal(model.reasoning, undefined, `${model.id} must not imply positive reasoning support`);
     }
-    for (const id of ["empty-object", "empty-array", "unknown-vocabulary"]) {
-      assert.equal(models.find((model) => model.id === id)?.thinkingLevelMap, undefined);
+    for (const id of [
+      "empty-object",
+      "empty-array",
+      "unknown-vocabulary",
+      "off-only",
+      "none-only",
+    ]) {
+      assert.equal(
+        models.find((model) => model.id === id)?.thinkingLevelMap,
+        undefined,
+        `${id} must not publish a map that masks positive levels`,
+      );
     }
-    assert.equal(models.find((model) => model.id === "off-only")?.thinkingLevelMap?.off, "off");
-    assert.equal(models.find((model) => model.id === "none-only")?.thinkingLevelMap?.off, "none");
+  });
+
+  test("off-only effort metadata does not mask native reasoning", async (t) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({
+        data: [{ id: "gpt-5", reasoning_efforts: ["none"] }],
+      }),
+    })) as any;
+    t.after(() => { globalThis.fetch = original; });
+
+    const cached = await fetchModels("https://x.example/v1", null);
+    assert.equal(cached[0].reasoning, undefined);
+    assert.equal(cached[0].thinkingLevelMap, undefined);
+
+    const [model] = buildProviderModels(cached, [
+      {
+        id: "gpt-5",
+        api: "openai-completions",
+        baseUrl: "https://x.example/v1",
+        reasoning: true,
+        thinkingLevelMap: { minimal: "minimal", low: "low", medium: "medium", high: "high" },
+      },
+    ], "https://x.example/v1");
+    assert.equal(model.reasoning, true);
+    assert.deepEqual(model.thinkingLevelMap, {
+      minimal: "minimal",
+      low: "low",
+      medium: "medium",
+      high: "high",
+    });
   });
 
   test("advertised effort levels become pi's thinking-level map", async (t) => {
@@ -438,6 +478,44 @@ describe("reasoning capabilities are discovered instead of silently disabled", (
     assert.equal(sameEndpoint.reasoning, true);
   });
 
+  test("two explicit vendor namespaces are never bridged", () => {
+    const [model] = buildProviderModels([{ id: "other-vendor/model-x" }], [
+      {
+        id: "vendor/model-x",
+        api: "openai-completions",
+        baseUrl: "https://gateway.example/v1",
+        reasoning: true,
+        thinkingLevelMap: { high: "high" },
+      },
+    ], "https://gateway.example/v1");
+    assert.equal(model.reasoning, false);
+    assert.equal(model.thinkingLevelMap, undefined);
+  });
+
+  test("a trailing slash never produces an empty identity match", () => {
+    const [model] = buildProviderModels([{ id: "vendor/" }], [
+      {
+        id: "vendor/reasoner",
+        api: "openai-completions",
+        baseUrl: "https://gateway.example/v1",
+        reasoning: true,
+      },
+    ], "https://gateway.example/v1");
+    assert.equal(model.reasoning, false);
+  });
+
+  test(":free aliases match in both directions", () => {
+    const [model] = buildProviderModels([{ id: "vendor/nemotron-reasoner" }], [
+      {
+        id: "vendor/nemotron-reasoner:free",
+        api: "openai-completions",
+        baseUrl: "https://provider.example/v1",
+        reasoning: true,
+      },
+    ]);
+    assert.equal(model.reasoning, true);
+  });
+
   test("Ollama-style model tags do not match a different bare model", () => {
     const [model] = buildProviderModels([{ id: "llama3:8b" }], [
       { id: "llama3", api: "openai-completions", reasoning: true },
@@ -458,6 +536,46 @@ describe("reasoning capabilities are discovered instead of silently disabled", (
       { id: "gpt-5", api: "openai-responses", reasoning: true },
     ]);
     assert.equal(model.reasoning, false);
+  });
+
+  test("empty effort strings are treated as unsupported", () => {
+    const [model] = buildProviderModels([
+      { id: "blank-map", thinkingLevelMap: { high: "", medium: "   " } },
+    ], []);
+    assert.equal(model.reasoning, false, "blank effort strings must not enable thinking");
+    assert.deepEqual(model.thinkingLevelMap, { high: null, medium: null });
+  });
+
+  test("a hand-written thinking map enables thinking without an explicit reasoning flag", () => {
+    const [model] = buildProviderModels([
+      { id: "custom-reasoner", thinkingLevelMap: { medium: "medium" } },
+    ], []);
+    assert.equal(model.reasoning, true);
+    assert.deepEqual(
+      getSupportedThinkingLevels(model as any),
+      ["off", "minimal", "low", "medium", "high"],
+    );
+  });
+
+  test("invalid cached reasoning and compat values are ignored", () => {
+    const [model] = buildProviderModels([
+      { id: "bad-types", reasoning: "yes" as any, compat: "nope" as any },
+    ], []);
+    assert.equal(model.reasoning, false);
+    assert.equal(model.compat, undefined);
+  });
+
+  test("catalog inference stays fast for large catalogs", () => {
+    const native = Array.from({ length: 3_000 }, (_, i) => ({
+      id: `vendor/model-${i}`,
+      api: "openai-completions",
+      baseUrl: `https://provider-${i % 50}.example/v1`,
+      reasoning: i % 2 === 0,
+    }));
+    const models = Array.from({ length: 3_000 }, (_, i) => ({ id: `model-${i}` }));
+    const started = Date.now();
+    buildProviderModels(models, native, "https://gateway.example/v1");
+    assert.ok(Date.now() - started < 5_000, "inference must not scan the catalog per model");
   });
 
   test("same-endpoint metadata carries pi's exact thinking map and compat flags", () => {
