@@ -239,7 +239,7 @@ provider's `/models` catalog does not report them:
 | `maxTokens` | number | `4096` | Maximum output tokens per response. |
 | `reasoning` | boolean | inferred / `false` | Enables pi's thinking mode for the model. An explicit cached value overrides native-catalog inference. |
 | `input` | `["text"]` or `["text","image"]` | `["text"]` | Modalities pi may send; `image` lets pi attach image blocks. Any other value is ignored. |
-| `thinkingLevelMap` | object | omitted | pi thinking-level remap, passed through to the registered model. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); string values are sent to the provider, `null` hides an unsupported level. See [pi's docs](https://pi.dev/docs/latest/models#thinking-level-map). |
+| `thinkingLevelMap` | object | omitted | pi thinking-level remap, passed through to the registered model. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); string values are sent to the provider, `null` hides an unsupported level. See [pi's docs](https://pi.dev/docs/latest/models#thinking-level-map). A map with at least one positive level also enables thinking, so `reasoning` does not have to be set as well. |
 | `samplingParams` | object | omitted | **Not currently applied.** Preserved in the config and passed to pi, but pi's `registerProvider` builds each model from a fixed field list that does not include it (verified against pi 0.73.1), so it has no effect today. Kept for forward compatibility. |
 | `compat` | object | omitted | OpenAI compatibility flags for the model (`thinkingFormat`, `chatTemplateKwargs`, `maxTokensField`, `supportsDeveloperRole`, …). See [pi's docs](https://pi.dev/docs/latest/models#openai-compatibility). |
 
@@ -255,10 +255,12 @@ recovers reasoning capability from two sources:
 1. Capability fields published by the catalog itself — `reasoning`,
    `capabilities.reasoning`, a reasoning entry in `supported_parameters`, or
    advertised `reasoning_efforts` levels.
-2. Pi's built-in model catalog. An exact model ID (or the known `:free`
-   routing alias) is used when the catalog agrees that the model supports
-   reasoning. Namespace differences are bridged only for the same endpoint,
-   where the provider identity is already known. For a same-endpoint,
+2. Pi's built-in model catalog. An exact model ID is used when the catalog
+   agrees that the model supports reasoning; the known `:free` routing alias
+   is matched in both directions (`x` matches `x:free`). A namespace
+   difference is bridged only for the same endpoint **and** only when one of
+   the two IDs is bare — two explicit vendor namespaces (`other-vendor/x` vs
+   `vendor/x`) are never treated as the same model. For a same-endpoint,
    same-API match, Pi's exact thinking-level map and OpenAI compatibility
    flags are reused too.
 
@@ -281,6 +283,21 @@ hand and `/reload`:
 
 `/compat-refresh` keeps these hand-edited fields for any model ID that is still
 present in the refreshed catalog; a field the provider does report always wins.
+
+#### Thinking levels on providers that do not take `reasoning_effort`
+
+Pi's compatibility flags decide how a thinking level is sent. When the native
+catalog entry for the same endpoint says a model does **not** support the
+OpenAI-style `reasoning_effort` parameter (NVIDIA NIM, for example, enables
+reasoning on its own), the thinking levels are still offered in pi, but no
+`reasoning_effort` field is added to the request. To send it anyway, set the
+flag on the model in `config.json`:
+
+```json
+{ "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+  "reasoning": true,
+  "compat": { "supportsReasoningEffort": true } }
+```
 
 ### Adding a provider without pi — `add-provider.sh`
 

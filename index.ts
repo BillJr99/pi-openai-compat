@@ -129,10 +129,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** pi's thinking levels, in the order pi presents them. */
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
+/** True when a value is a usable provider effort string. */
+function isUsableEffort(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 /** True when a thinking map advertises at least one selectable positive effort. */
 function hasPositiveThinkingLevel(map: Record<string, string | null> | undefined): boolean {
   if (!map) return false;
-  return THINKING_LEVELS.some((level) => level !== "off" && typeof map[level] === "string");
+  return THINKING_LEVELS.some((level) => level !== "off" && isUsableEffort(map[level]));
 }
 
 /**
@@ -145,7 +150,15 @@ export function normalizeThinkingLevelMap(value: unknown): Record<string, string
   const out: Record<string, string | null> = {};
   for (const [level, mapped] of Object.entries(value)) {
     if (!THINKING_LEVELS.includes(level as (typeof THINKING_LEVELS)[number])) continue;
-    if (mapped === null || typeof mapped === "string") out[level] = mapped;
+    if (mapped === null) {
+      out[level] = null;
+      continue;
+    }
+    if (typeof mapped !== "string") continue;
+    const trimmed = mapped.trim();
+    // An empty effort string is not a level. Treating it as unsupported
+    // avoids sending `reasoning_effort: ""` to a provider.
+    out[level] = trimmed.length > 0 ? trimmed : null;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -182,6 +195,11 @@ export function normalizeReasoningEffortMap(value: unknown): Record<string, stri
     if (level === "off") continue;
     map[level] = advertised.has(level) ? level : null;
   }
+  // "off"/"none" on its own advertises no positive effort. Keeping that map
+  // would mask every positive level as soon as reasoning is enabled from
+  // another source (an explicit `reasoning: true` or the native catalog), so
+  // it is dropped instead.
+  if (!hasPositiveThinkingLevel(map)) return undefined;
   return map;
 }
 
@@ -1092,31 +1110,78 @@ function bareModelId(id: string): string {
 }
 
 /**
- * IDs that identify the same model across gateway namespaces and `:free`
- * routing aliases. Both sides of a comparison use this representation, so a
- * compat id may be namespaced while Pi's built-in id is bare (or vice versa).
+ * True when two ids may name the same model despite a namespace difference.
+ *
+ * Only a *bare* id on one side may be bridged to a namespaced id on the other:
+ * two explicit namespaces (`other-vendor/x` vs `vendor/x`) belong to different
+ * vendors and must never be matched through their shared basename.
  */
-function modelIdentityKeys(id: string): Set<string> {
-  const withoutSuffix = withoutFreeSuffix(id);
-  return new Set([
-    id,
-    withoutSuffix,
-    bareModelId(id),
-    bareModelId(withoutSuffix),
-  ]);
+function idsMayAlias(compatId: string, nativeId: string): boolean {
+  if (compatId === nativeId) return true;
+  const compatBare = bareModelId(withoutFreeSuffix(compatId)).trim();
+  const nativeBare = bareModelId(withoutFreeSuffix(nativeId)).trim();
+  if (!compatBare || !nativeBare) return false;
+  const compatNamespaced = compatId.includes("/");
+  const nativeNamespaced = nativeId.includes("/");
+  if (compatNamespaced && nativeNamespaced) return false;
+  return compatBare === nativeBare;
 }
+
+/** Endpoint normalization is hot; cache it so a catalog is parsed once. */
+const endpointCache = new Map<string, string>();
 
 function normalizeEndpoint(url: string | undefined): string {
   if (!url) return "";
+  const cached = endpointCache.get(url);
+  if (cached !== undefined) return cached;
+  let normalized: string;
   try {
     const parsed = new URL(url);
     parsed.hash = "";
     // URL normalizes the hostname case. Keep the path and query
     // case-sensitive: different tenants or routes are not interchangeable.
-    return parsed.toString().replace(/\/+$/, "");
+    normalized = parsed.toString().replace(/\/+$/, "");
   } catch {
-    return url.replace(/\/+$/, "");
+    normalized = url.replace(/\/+$/, "");
   }
+  endpointCache.set(url, normalized);
+  return normalized;
+}
+
+interface NativeModelIndex {
+  byId: Map<string, NativeCatalogModel[]>;
+  byStrippedId: Map<string, NativeCatalogModel[]>;
+  byEndpoint: Map<string, NativeCatalogModel[]>;
+}
+
+/**
+ * Index of pi's built-in catalog, built once per catalog array so that
+ * inference is a lookup instead of a scan over every model for every model.
+ */
+const nativeIndexCache = new WeakMap<object, NativeModelIndex>();
+
+function indexNativeModels(nativeModels: readonly NativeCatalogModel[]): NativeModelIndex {
+  const cached = nativeIndexCache.get(nativeModels as object);
+  if (cached) return cached;
+  const index: NativeModelIndex = {
+    byId: new Map(),
+    byStrippedId: new Map(),
+    byEndpoint: new Map(),
+  };
+  const push = (map: Map<string, NativeCatalogModel[]>, key: string, model: NativeCatalogModel) => {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(model);
+    else map.set(key, [model]);
+  };
+  for (const model of nativeModels) {
+    push(index.byId, model.id, model);
+    const stripped = withoutFreeSuffix(model.id);
+    if (stripped !== model.id) push(index.byStrippedId, stripped, model);
+    const endpoint = normalizeEndpoint(model.baseUrl);
+    if (endpoint) push(index.byEndpoint, endpoint, model);
+  }
+  nativeIndexCache.set(nativeModels as object, index);
+  return index;
 }
 
 /**
@@ -1137,31 +1202,28 @@ export function inferNativeModelMetadata(
   nativeModels: readonly NativeCatalogModel[],
   compatBaseUrl?: string,
 ): Pick<NativeCatalogModel, "reasoning" | "thinkingLevelMap" | "compat"> | undefined {
-  // Exact IDs are safe to match across providers. The only recognized ID
-  // alias is the known `:free` routing suffix.
-  const exactIds = new Set([modelId, withoutFreeSuffix(modelId)]);
-  const exact = nativeModels.filter((model) => exactIds.has(model.id));
-  let candidates = exact;
+  const index = indexNativeModels(nativeModels);
 
-  if (candidates.length === 0) {
-    // A namespace difference is only safe to bridge within the same endpoint.
-    // Across providers, `other-vendor/reasoner` and `reasoner` can be
-    // different models, so bare-segment matching would be a guess.
-    const endpoint = normalizeEndpoint(compatBaseUrl);
-    if (endpoint) {
-      const identityKeys = modelIdentityKeys(modelId);
-      candidates = nativeModels.filter((model) => {
-        if (model.api !== "openai-completions" || normalizeEndpoint(model.baseUrl) !== endpoint) {
-          return false;
-        }
-        const nativeKeys = modelIdentityKeys(model.id);
-        return [...identityKeys].some((key) => nativeKeys.has(key));
-      });
-    }
+  // Exact IDs are safe to match across providers. The known `:free` routing
+  // alias is stripped on both sides, so `x` matches `x:free` in either
+  // direction.
+  const exact = new Set<NativeCatalogModel>();
+  for (const id of new Set([modelId, withoutFreeSuffix(modelId)])) {
+    for (const model of index.byId.get(id) ?? []) exact.add(model);
+    for (const model of index.byStrippedId.get(id) ?? []) exact.add(model);
+  }
+
+  let candidates = [...exact];
+  const endpoint = normalizeEndpoint(compatBaseUrl);
+
+  if (candidates.length === 0 && endpoint) {
+    // A namespace difference is only safe to bridge within the same endpoint,
+    // and only when one of the two ids is bare.
+    candidates = (index.byEndpoint.get(endpoint) ?? []).filter((model) =>
+      model.api === "openai-completions" && idsMayAlias(modelId, model.id));
   }
   if (candidates.length === 0) return undefined;
 
-  const endpoint = normalizeEndpoint(compatBaseUrl);
   const sameEndpoint = endpoint
     ? candidates.filter((model) =>
       model.api === "openai-completions" && normalizeEndpoint(model.baseUrl) === endpoint,
@@ -1199,10 +1261,19 @@ export function buildProviderModels(
   return models.map((m) => {
     const id = m.id;
     const inferred = inferNativeModelMetadata(id, nativeModels, compatBaseUrl);
-    const reasoning = m.reasoning ?? inferred?.reasoning ?? false;
-    const thinkingLevelMap = normalizeThinkingLevelMap(m.thinkingLevelMap) ??
-      (reasoning ? inferred?.thinkingLevelMap : undefined);
-    const compat = m.compat ?? (reasoning ? inferred?.compat : undefined);
+    // cachedModels is a hand-editable file, so every field is validated at
+    // this single choke point before pi sees it.
+    const explicitReasoning = typeof m.reasoning === "boolean" ? m.reasoning : undefined;
+    const explicitMap = normalizeThinkingLevelMap(m.thinkingLevelMap);
+    // A hand-written thinking map is an explicit statement that the model
+    // thinks; without it pi would ignore the map entirely.
+    const reasoning = explicitReasoning ??
+      (hasPositiveThinkingLevel(explicitMap) ? true : undefined) ??
+      inferred?.reasoning ??
+      false;
+    const thinkingLevelMap = explicitMap ?? (reasoning ? inferred?.thinkingLevelMap : undefined);
+    const explicitCompat = isRecord(m.compat) ? m.compat : undefined;
+    const compat = explicitCompat ?? (reasoning ? inferred?.compat : undefined);
     return {
       id,
       name: id,
