@@ -2,9 +2,9 @@
  * Regression tests for @billjr99/pi-openai-compat.
  *
  * Runs on node:test with Node's built-in TypeScript type stripping, so there
- * is no build step and no test-framework dependency. index.ts imports pi only
- * as `import type`, which is erased at runtime, and has no top-level side
- * effects, so importing it here is free.
+ * is no build step and no test-framework dependency. index.ts reads pi's
+ * static built-in model catalog through pi-ai; that import performs no network
+ * or configuration writes, so importing it here remains safe.
  *
  *   node --test test/
  *
@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getSupportedThinkingLevels, streamSimple } from "@mariozechner/pi-ai";
 
 import {
   TEMPLATES,
@@ -34,6 +35,7 @@ import {
   filterProviderEntries,
   isAuthFailure,
   isLocalUrl,
+  loadNativeCatalogModels,
   mergeModelMetadata,
   normalizeInput,
   normalizeTokenCount,
@@ -300,6 +302,264 @@ describe("Finding 6 — untrusted catalog metadata is validated", () => {
     assert.equal(fine.maxTokens, 8_192);
     assert.equal(fine.reasoning, true);
     assert.deepEqual(fine.input, ["text", "image"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("reasoning capabilities are discovered instead of silently disabled", () => {
+  test("catalog capability fields mark a model as reasoning-capable", async (t) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "capability", capabilities: { reasoning: true } },
+          { id: "parameters", supported_parameters: ["tools", "reasoning_effort"] },
+          { id: "efforts", reasoning_efforts: { levels: ["low", "medium", "high"] } },
+          { id: "explicit", reasoning: false, supported_parameters: ["reasoning"] },
+        ],
+      }),
+    })) as any;
+    t.after(() => { globalThis.fetch = original; });
+
+    const models = await fetchModels("https://x.example/v1", null);
+    assert.equal(models.find((m) => m.id === "capability")?.reasoning, true);
+    assert.equal(models.find((m) => m.id === "parameters")?.reasoning, true);
+    assert.equal(models.find((m) => m.id === "efforts")?.reasoning, true);
+    assert.equal(
+      models.find((m) => m.id === "explicit")?.reasoning,
+      false,
+      "an explicit false must win over capability hints",
+    );
+  });
+
+  test("malformed or unknown effort metadata does not invent reasoning support", async (t) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "empty-object", reasoning_efforts: {} },
+          { id: "empty-array", reasoning_efforts: [] },
+          { id: "unknown-vocabulary", reasoning_efforts: { levels: ["ultra"] } },
+          { id: "off-only", reasoning_efforts: ["off"] },
+          { id: "none-only", reasoning_efforts: ["none"] },
+        ],
+      }),
+    })) as any;
+    t.after(() => { globalThis.fetch = original; });
+
+    const models = await fetchModels("https://x.example/v1", null);
+    for (const model of models) {
+      assert.equal(model.reasoning, undefined, `${model.id} must not imply positive reasoning support`);
+    }
+    for (const id of ["empty-object", "empty-array", "unknown-vocabulary"]) {
+      assert.equal(models.find((model) => model.id === id)?.thinkingLevelMap, undefined);
+    }
+    assert.equal(models.find((model) => model.id === "off-only")?.thinkingLevelMap?.off, "off");
+    assert.equal(models.find((model) => model.id === "none-only")?.thinkingLevelMap?.off, "none");
+  });
+
+  test("advertised effort levels become pi's thinking-level map", async (t) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({
+        data: [{
+          id: "mapped",
+          reasoning_efforts: { levels: ["low", "medium", "high"] },
+        }],
+      }),
+    })) as any;
+    t.after(() => { globalThis.fetch = original; });
+
+    const [model] = await fetchModels("https://x.example/v1", null);
+    assert.deepEqual(model.thinkingLevelMap, {
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: null,
+      max: null,
+    });
+  });
+
+  test("pi's built-in catalog supplies reasoning for an exact model id", () => {
+    const [model] = buildProviderModels([{ id: "gpt-5" }], [
+      {
+        id: "gpt-5",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+      },
+    ]);
+    assert.equal(model.reasoning, true);
+    assert.deepEqual(
+      getSupportedThinkingLevels(model as any),
+      ["off", "minimal", "low", "medium", "high"],
+      "pi must expose thinking levels, not only off",
+    );
+  });
+
+  test("exact and :free model ids match their underlying built-in model", () => {
+    const native = [
+      {
+        id: "deepseek-v4.1-flash",
+        api: "openai-completions",
+        baseUrl: "https://gateway.example/v1",
+        reasoning: true,
+      },
+    ];
+    const [bare] = buildProviderModels([{ id: "deepseek-v4.1-flash" }], native);
+    const [free] = buildProviderModels([{ id: "deepseek-v4.1-flash:free" }], native);
+    assert.equal(bare.reasoning, true);
+    assert.equal(free.reasoning, true);
+  });
+
+  test("namespace differences require the same endpoint", () => {
+    const [differentEndpoint] = buildProviderModels([{ id: "other-vendor/reasoner" }], [
+      {
+        id: "vendor/reasoner",
+        api: "openai-completions",
+        baseUrl: "https://provider.example/v1",
+        reasoning: true,
+      },
+    ], "https://gateway.example/v1");
+    assert.equal(differentEndpoint.reasoning, false);
+
+    const [sameEndpoint] = buildProviderModels([{ id: "openai/gpt-5" }], [
+      {
+        id: "gpt-5",
+        api: "openai-completions",
+        baseUrl: "https://gateway.example/v1",
+        reasoning: true,
+      },
+    ], "https://gateway.example/v1");
+    assert.equal(sameEndpoint.reasoning, true);
+  });
+
+  test("Ollama-style model tags do not match a different bare model", () => {
+    const [model] = buildProviderModels([{ id: "llama3:8b" }], [
+      { id: "llama3", api: "openai-completions", reasoning: true },
+    ]);
+    assert.equal(model.reasoning, false);
+  });
+
+  test("conflicting cross-provider metadata is not guessed", () => {
+    const [model] = buildProviderModels([{ id: "ambiguous" }], [
+      { id: "ambiguous", api: "openai-responses", reasoning: true },
+      { id: "ambiguous", api: "openai-completions", reasoning: false },
+    ]);
+    assert.equal(model.reasoning, false, "ambiguous metadata must fail closed");
+  });
+
+  test("an explicit cached value overrides native inference", () => {
+    const [model] = buildProviderModels([{ id: "gpt-5", reasoning: false }], [
+      { id: "gpt-5", api: "openai-responses", reasoning: true },
+    ]);
+    assert.equal(model.reasoning, false);
+  });
+
+  test("same-endpoint metadata carries pi's exact thinking map and compat flags", () => {
+    const native = [{
+      id: "nvidia-model",
+      api: "openai-completions",
+      baseUrl: "https://integrate.api.nvidia.com/v1",
+      reasoning: true,
+      thinkingLevelMap: { minimal: null, low: null, medium: "medium", high: "high" },
+      compat: { supportsReasoningEffort: false },
+    }];
+    const [model] = buildProviderModels(
+      [{ id: "nvidia-model" }],
+      native,
+      "https://integrate.api.nvidia.com/v1",
+    );
+    assert.deepEqual(model.thinkingLevelMap, native[0].thinkingLevelMap);
+    assert.deepEqual(model.compat, native[0].compat);
+    assert.deepEqual(getSupportedThinkingLevels(model as any), ["off", "medium", "high"]);
+  });
+
+  test("cross-endpoint matches copy reasoning only, never transport flags", () => {
+    const [model] = buildProviderModels(
+      [{ id: "gateway-model" }],
+      [{
+        id: "gateway-model",
+        api: "openai-completions",
+        baseUrl: "https://provider.example/v1",
+        reasoning: true,
+        thinkingLevelMap: { high: "high" },
+        compat: { thinkingFormat: "deepseek" },
+      }],
+      "https://gateway.example/v1",
+    );
+    assert.equal(model.reasoning, true);
+    assert.equal(model.thinkingLevelMap, undefined);
+    assert.equal(model.compat, undefined);
+  });
+
+  test("endpoint path and query matching remain case-sensitive", () => {
+    const [pathModel] = buildProviderModels(
+      [{ id: "path-model" }],
+      [{
+        id: "path-model",
+        api: "openai-completions",
+        baseUrl: "https://provider.example/Case/v1",
+        reasoning: true,
+        compat: { thinkingFormat: "provider-specific" },
+      }],
+      "https://provider.example/case/v1",
+    );
+    assert.equal(pathModel.reasoning, true);
+    assert.equal(pathModel.compat, undefined);
+
+    const [queryModel] = buildProviderModels(
+      [{ id: "query-model" }],
+      [{
+        id: "query-model",
+        api: "openai-completions",
+        baseUrl: "https://provider.example/v1?tenant=one",
+        reasoning: true,
+        compat: { thinkingFormat: "provider-specific" },
+      }],
+      "https://provider.example/v1?tenant=two",
+    );
+    assert.equal(queryModel.reasoning, true);
+    assert.equal(queryModel.compat, undefined);
+  });
+
+  test("a selected effort reaches the OpenAI-compatible request body", async (t) => {
+    const original = globalThis.fetch;
+    let body: any;
+    globalThis.fetch = (async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as any;
+    t.after(() => { globalThis.fetch = original; });
+
+    const [model] = buildProviderModels([{ id: "gpt-5" }], [
+      { id: "gpt-5", api: "openai-responses", reasoning: true },
+    ]);
+    for await (const _event of streamSimple({
+      ...model,
+      api: "openai-completions",
+      provider: "compat-test",
+      baseUrl: "https://x.example/v1",
+    } as any, {
+      messages: [{ role: "user", content: "hi" }],
+    } as any, { reasoning: "high", apiKey: "test" })) {
+      // The mocked stream ends without a finish_reason; the request body above
+      // is what this test needs to inspect.
+    }
+    assert.equal(body.reasoning_effort, "high");
+  });
+
+  test("pi's built-in catalog is available through the compatibility entrypoint", () => {
+    const native = loadNativeCatalogModels();
+    assert.ok(Array.isArray(native));
+    assert.ok(native.length > 0, "pi should expose at least one built-in model");
   });
 });
 

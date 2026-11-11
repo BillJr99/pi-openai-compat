@@ -237,7 +237,7 @@ provider's `/models` catalog does not report them:
 | `id` | string | required | Model ID as sent in requests. |
 | `contextWindow` | number | `128000` | Context window in tokens. |
 | `maxTokens` | number | `4096` | Maximum output tokens per response. |
-| `reasoning` | boolean | `false` | Enables pi's thinking mode for the model. |
+| `reasoning` | boolean | inferred / `false` | Enables pi's thinking mode for the model. An explicit cached value overrides native-catalog inference. |
 | `input` | `["text"]` or `["text","image"]` | `["text"]` | Modalities pi may send; `image` lets pi attach image blocks. Any other value is ignored. |
 | `thinkingLevelMap` | object | omitted | pi thinking-level remap, passed through to the registered model. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); string values are sent to the provider, `null` hides an unsupported level. See [pi's docs](https://pi.dev/docs/latest/models#thinking-level-map). |
 | `samplingParams` | object | omitted | **Not currently applied.** Preserved in the config and passed to pi, but pi's `registerProvider` builds each model from a fixed field list that does not include it (verified against pi 0.73.1), so it has no effect today. Kept for forward compatibility. |
@@ -249,9 +249,22 @@ anything above 10,000,000 (context) or 1,000,000 (output) is clamped.  pi drives
 its context accounting off these numbers, so an inflated value from a
 misreporting or hostile catalog would otherwise inflate every request sent.
 
-Most catalogs report none of these beyond the ID, so aggregators and proxies
-(CLIProxyAPI, for example) register every model as a 128K, text-only,
-non-reasoning model.  To correct that, edit the entry by hand and `/reload`:
+Most OpenAI-compatible catalogs report only the model ID, so the extension now
+recovers reasoning capability from two sources:
+
+1. Capability fields published by the catalog itself — `reasoning`,
+   `capabilities.reasoning`, a reasoning entry in `supported_parameters`, or
+   advertised `reasoning_efforts` levels.
+2. Pi's built-in model catalog. An exact model ID (or the known `:free`
+   routing alias) is used when the catalog agrees that the model supports
+   reasoning. Namespace differences are bridged only for the same endpoint,
+   where the provider identity is already known. For a same-endpoint,
+   same-API match, Pi's exact thinking-level map and OpenAI compatibility
+   flags are reused too.
+
+An explicit `reasoning` value in `config.json` overrides native-catalog
+inference. If a custom model is unknown to both sources, edit the entry by
+hand and `/reload`:
 
 ```json
 {
