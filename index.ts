@@ -17,6 +17,10 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+// Pi maps the legacy `@mariozechner/*` package names to its own host copies.
+// This stays a dev dependency: distributed extensions must not ship the
+// host-provided pi packages as runtime dependencies.
+import * as piAi from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -41,6 +45,21 @@ interface CachedModel {
   // thinking-level remap, verbatim sampling params, and OpenAI compat flags.
   thinkingLevelMap?: Record<string, string | null>;
   samplingParams?: Record<string, unknown>;
+  compat?: Record<string, unknown>;
+}
+
+/**
+ * The subset of a built-in pi model this extension needs for capability
+ * inference. Kept structural so the code works with both pi's legacy
+ * `@mariozechner/pi-ai` catalog and current pi's compatibility entrypoint.
+ */
+export interface NativeCatalogModel {
+  id: string;
+  api?: string;
+  baseUrl?: string;
+  provider?: string;
+  reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string | null>;
   compat?: Record<string, unknown>;
 }
 
@@ -79,6 +98,14 @@ type RawModel = {
   reasoning?: unknown;
   input?: unknown;
   task?: { name?: string };
+  // Capability metadata used by different OpenAI-compatible catalogs.
+  capabilities?: unknown;
+  supported_parameters?: unknown;
+  supportedParameters?: unknown;
+  reasoning_efforts?: unknown;
+  reasoningEfforts?: unknown;
+  thinking_level_map?: unknown;
+  thinkingLevelMap?: unknown;
 };
 
 /**
@@ -93,6 +120,112 @@ export function normalizeInput(value: unknown): ModelInput[] | undefined {
     (v): v is ModelInput => v === "text" || v === "image",
   );
   return kept.length > 0 ? kept : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** pi's thinking levels, in the order pi presents them. */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+/** True when a thinking map advertises at least one selectable positive effort. */
+function hasPositiveThinkingLevel(map: Record<string, string | null> | undefined): boolean {
+  if (!map) return false;
+  return THINKING_LEVELS.some((level) => level !== "off" && typeof map[level] === "string");
+}
+
+/**
+ * Keep only a structurally valid thinking-level map. Catalog data and a
+ * hand-edited config are both untrusted inputs here, so every key and value
+ * is checked before it can reach pi.
+ */
+export function normalizeThinkingLevelMap(value: unknown): Record<string, string | null> | undefined {
+  if (!isRecord(value)) return undefined;
+  const out: Record<string, string | null> = {};
+  for (const [level, mapped] of Object.entries(value)) {
+    if (!THINKING_LEVELS.includes(level as (typeof THINKING_LEVELS)[number])) continue;
+    if (mapped === null || typeof mapped === "string") out[level] = mapped;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Convert a catalog's advertised reasoning-effort levels into pi's map form.
+ *
+ * Catalogs use either `{ levels: [...] }` or a bare array. We only recognize
+ * pi's own level names; an unfamiliar provider-specific vocabulary is left
+ * alone rather than guessed at.
+ */
+export function normalizeReasoningEffortMap(value: unknown): Record<string, string | null> | undefined {
+  let levels: unknown;
+  if (Array.isArray(value)) {
+    levels = value;
+  } else if (isRecord(value)) {
+    levels = value.levels ?? value.supported;
+  }
+  if (!Array.isArray(levels)) return undefined;
+
+  const advertised = new Set(
+    levels
+      .filter((level): level is string => typeof level === "string")
+      .map((level) => level.toLowerCase()),
+  );
+  const recognized = new Set<string>([...THINKING_LEVELS, "none"]);
+  if (![...advertised].some((level) => recognized.has(level))) return undefined;
+
+  const map: Record<string, string | null> = {};
+  if (advertised.has("none")) map.off = "none";
+  else if (advertised.has("off")) map.off = "off";
+
+  for (const level of THINKING_LEVELS) {
+    if (level === "off") continue;
+    map[level] = advertised.has(level) ? level : null;
+  }
+  return map;
+}
+
+/**
+ * Read reasoning capability metadata from the several shapes used by
+ * OpenAI-compatible model catalogs.
+ *
+ * A direct boolean is authoritative (including `false`). Otherwise we accept
+ * `capabilities.reasoning`, a reasoning entry in `supported_parameters`, or
+ * an advertised `reasoning_efforts` list. These signals only add capability;
+ * they never turn an explicitly non-reasoning model into a reasoning model.
+ */
+export function normalizeRawCapabilities(raw: RawModel): Pick<CachedModel, "reasoning" | "thinkingLevelMap"> {
+  let reasoning: boolean | undefined;
+  if (typeof raw.reasoning === "boolean") {
+    reasoning = raw.reasoning;
+  } else if (isRecord(raw.capabilities) && typeof raw.capabilities.reasoning === "boolean") {
+    reasoning = raw.capabilities.reasoning;
+  }
+
+  const parameters = raw.supported_parameters ?? raw.supportedParameters;
+  const parametersIncludeReasoning = Array.isArray(parameters) && parameters.some((parameter) => {
+    if (typeof parameter !== "string") return false;
+    const normalized = parameter.toLowerCase();
+    return normalized === "reasoning" ||
+      normalized === "reasoning_effort" ||
+      normalized === "reasoning.effort" ||
+      normalized === "thinking";
+  });
+
+  const efforts = raw.reasoning_efforts ?? raw.reasoningEfforts;
+  const effortMap = normalizeReasoningEffortMap(efforts);
+  if (reasoning === undefined && (parametersIncludeReasoning || hasPositiveThinkingLevel(effortMap))) {
+    reasoning = true;
+  }
+
+  const explicitMap = normalizeThinkingLevelMap(raw.thinking_level_map ?? raw.thinkingLevelMap);
+  const thinkingLevelMap = explicitMap ?? effortMap;
+  if (reasoning === undefined && hasPositiveThinkingLevel(explicitMap)) reasoning = true;
+
+  return {
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+  };
 }
 
 // Upper bounds for token counts accepted from a provider catalog or a
@@ -903,7 +1036,7 @@ export async function fetchModels(
         id,
         contextWindow: normalizeTokenCount(m.context_window, MAX_CONTEXT_WINDOW),
         maxTokens: normalizeTokenCount(m.max_tokens, MAX_OUTPUT_TOKENS),
-        reasoning: typeof m.reasoning === "boolean" ? m.reasoning : undefined,
+        ...normalizeRawCapabilities(m),
         input: normalizeInput(m.input),
       };
     })
@@ -915,22 +1048,174 @@ export async function fetchModels(
 // Provider registration helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function buildProviderModels(models: CachedModel[]) {
+/**
+ * Load pi's built-in model catalog through the extension-compatible pi-ai
+ * entrypoint. Pi aliases the legacy package name to its current compatibility
+ * module, so this works across the old and current package layouts without
+ * making pi-ai a runtime dependency of the published extension.
+ */
+export function loadNativeCatalogModels(): NativeCatalogModel[] {
+  const models: NativeCatalogModel[] = [];
+  try {
+    const providerIds = piAi.getProviders() as unknown as unknown;
+    if (!Array.isArray(providerIds)) return models;
+    const getModelsForProvider = piAi.getModels as unknown as
+      (provider: string) => unknown[];
+    for (const provider of providerIds) {
+      if (typeof provider !== "string") continue;
+      try {
+        const providerModels = getModelsForProvider(provider);
+        if (Array.isArray(providerModels)) models.push(...providerModels as NativeCatalogModel[]);
+      } catch {
+        // One unavailable provider must not prevent inference for the rest.
+      }
+    }
+  } catch {
+    // Capability inference is an enhancement; a missing catalog must never
+    // prevent the extension from registering providers.
+  }
+  return models;
+}
+
+/** Model IDs can carry a routing suffix such as `:free`. */
+function withoutFreeSuffix(id: string): string {
+  // Only strip the known gateway suffix. Ollama-style tags (`:8b`,
+  // `:latest`) are part of the model identity and must not match a different
+  // bare model id.
+  return id.endsWith(":free") ? id.slice(0, -":free".length) : id;
+}
+
+/** The final path segment of a namespaced model id (`vendor/model` -> `model`). */
+function bareModelId(id: string): string {
+  const slashIndex = id.lastIndexOf("/");
+  return slashIndex >= 0 ? id.slice(slashIndex + 1) : id;
+}
+
+/**
+ * IDs that identify the same model across gateway namespaces and `:free`
+ * routing aliases. Both sides of a comparison use this representation, so a
+ * compat id may be namespaced while Pi's built-in id is bare (or vice versa).
+ */
+function modelIdentityKeys(id: string): Set<string> {
+  const withoutSuffix = withoutFreeSuffix(id);
+  return new Set([
+    id,
+    withoutSuffix,
+    bareModelId(id),
+    bareModelId(withoutSuffix),
+  ]);
+}
+
+function normalizeEndpoint(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    // URL normalizes the hostname case. Keep the path and query
+    // case-sensitive: different tenants or routes are not interchangeable.
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return url.replace(/\/+$/, "");
+  }
+}
+
+/**
+ * Infer a compat model's reasoning capability from pi's built-in catalog.
+ *
+ * Matching is deliberately conservative:
+ *   - exact IDs win over namespaced/bare IDs;
+ *   - a `:free` routing suffix is ignored when looking for the underlying ID;
+ *   - cross-provider matches must all agree on reasoning;
+ *   - thinking maps and transport flags are copied only for an exact
+ *     same-endpoint, same-API match.
+ *
+ * An explicit `reasoning` value in config or in the provider catalog always
+ * wins over inference; callers apply that rule before using this result.
+ */
+export function inferNativeModelMetadata(
+  modelId: string,
+  nativeModels: readonly NativeCatalogModel[],
+  compatBaseUrl?: string,
+): Pick<NativeCatalogModel, "reasoning" | "thinkingLevelMap" | "compat"> | undefined {
+  // Exact IDs are safe to match across providers. The only recognized ID
+  // alias is the known `:free` routing suffix.
+  const exactIds = new Set([modelId, withoutFreeSuffix(modelId)]);
+  const exact = nativeModels.filter((model) => exactIds.has(model.id));
+  let candidates = exact;
+
+  if (candidates.length === 0) {
+    // A namespace difference is only safe to bridge within the same endpoint.
+    // Across providers, `other-vendor/reasoner` and `reasoner` can be
+    // different models, so bare-segment matching would be a guess.
+    const endpoint = normalizeEndpoint(compatBaseUrl);
+    if (endpoint) {
+      const identityKeys = modelIdentityKeys(modelId);
+      candidates = nativeModels.filter((model) => {
+        if (model.api !== "openai-completions" || normalizeEndpoint(model.baseUrl) !== endpoint) {
+          return false;
+        }
+        const nativeKeys = modelIdentityKeys(model.id);
+        return [...identityKeys].some((key) => nativeKeys.has(key));
+      });
+    }
+  }
+  if (candidates.length === 0) return undefined;
+
+  const endpoint = normalizeEndpoint(compatBaseUrl);
+  const sameEndpoint = endpoint
+    ? candidates.filter((model) =>
+      model.api === "openai-completions" && normalizeEndpoint(model.baseUrl) === endpoint,
+    )
+    : [];
+  const source = sameEndpoint.length > 0 ? sameEndpoint : candidates;
+
+  const reasoningValues = new Set(
+    source
+      .map((model) => model.reasoning)
+      .filter((reasoning): reasoning is boolean => typeof reasoning === "boolean"),
+  );
+  if (reasoningValues.size !== 1) return undefined;
+
+  const inferred: Pick<NativeCatalogModel, "reasoning" | "thinkingLevelMap" | "compat"> = {
+    reasoning: reasoningValues.values().next().value as boolean,
+  };
+
+  // A same-endpoint model is the same model behind the same OpenAI transport,
+  // so pi's per-model thinking map and compatibility flags are authoritative.
+  if (sameEndpoint.length === 1) {
+    const native = sameEndpoint[0];
+    if (native.thinkingLevelMap) inferred.thinkingLevelMap = native.thinkingLevelMap;
+    if (isRecord(native.compat)) inferred.compat = native.compat;
+  }
+
+  return inferred;
+}
+
+export function buildProviderModels(
+  models: CachedModel[],
+  nativeModels: readonly NativeCatalogModel[] = [],
+  compatBaseUrl?: string,
+) {
   return models.map((m) => {
     const id = m.id;
+    const inferred = inferNativeModelMetadata(id, nativeModels, compatBaseUrl);
+    const reasoning = m.reasoning ?? inferred?.reasoning ?? false;
+    const thinkingLevelMap = normalizeThinkingLevelMap(m.thinkingLevelMap) ??
+      (reasoning ? inferred?.thinkingLevelMap : undefined);
+    const compat = m.compat ?? (reasoning ? inferred?.compat : undefined);
     return {
       id,
       name: id,
-      reasoning: m.reasoning ?? false,
+      reasoning,
       input: m.input ?? (["text"] as ModelInput[]),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       // Re-validated here as well as at fetch time: cachedModels is a
       // hand-editable file, so this is the single choke point pi sees.
       contextWindow: normalizeTokenCount(m.contextWindow, MAX_CONTEXT_WINDOW) ?? 128_000,
       maxTokens: normalizeTokenCount(m.maxTokens, MAX_OUTPUT_TOKENS) ?? 4_096,
-      ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
+      ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
       ...(m.samplingParams ? { samplingParams: m.samplingParams } : {}),
-      ...(m.compat ? { compat: m.compat } : {}),
+      ...(compat ? { compat } : {}),
     };
   });
 }
@@ -971,7 +1256,12 @@ export function compatKey(key: string): string {
   return `compat-${key}`;
 }
 
-export function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): void {
+export function registerProvider(
+  pi: ExtensionAPI,
+  key: string,
+  p: ProviderConfig,
+  nativeModels: readonly NativeCatalogModel[] = [],
+): void {
   pi.registerProvider(compatKey(key), {
     name: `compat/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
@@ -983,7 +1273,7 @@ export function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfi
     // this; ones that require a key return a clean 401.
     apiKey: p.apiKey ?? KEYLESS_PLACEHOLDER,
     api: "openai-completions" as const,
-    models: buildProviderModels(p.cachedModels),
+    models: buildProviderModels(p.cachedModels, nativeModels, p.baseUrl),
   });
 }
 
@@ -995,9 +1285,14 @@ export function registerProvider(pi: ExtensionAPI, key: string, p: ProviderConfi
  * /compat-login and /compat-logout commands needed to fix whatever caused it.
  * One malformed entry should cost the user that one provider, nothing more.
  */
-export function tryRegisterProvider(pi: ExtensionAPI, key: string, p: ProviderConfig): boolean {
+export function tryRegisterProvider(
+  pi: ExtensionAPI,
+  key: string,
+  p: ProviderConfig,
+  nativeModels: readonly NativeCatalogModel[] = [],
+): boolean {
   try {
-    registerProvider(pi, key, p);
+    registerProvider(pi, key, p, nativeModels);
     return true;
   } catch (e) {
     console.error(`[openai-compat:tryRegisterProvider] provider "${key}"`, e);
@@ -1011,6 +1306,7 @@ export function tryRegisterProvider(pi: ExtensionAPI, key: string, p: ProviderCo
 
 export default async function (pi: ExtensionAPI) {
   let config = loadConfig();
+  const nativeCatalog = loadNativeCatalogModels();
 
   // Self-heal older configs: backfill discovery fields (modelsUrl/idField/
   // keepTask) we can derive from the template without prompting. Persist once
@@ -1022,7 +1318,7 @@ export default async function (pi: ExtensionAPI) {
   // continues — providers are visible in /model from the very first render.
   for (const [key, p] of Object.entries(config.providers)) {
     if (p.cachedModels.length > 0) {
-      tryRegisterProvider(pi, key, p);
+      tryRegisterProvider(pi, key, p, nativeCatalog);
     }
   }
 
@@ -1043,7 +1339,7 @@ export default async function (pi: ExtensionAPI) {
     for (const [key, p] of Object.entries(config.providers)) {
       if (p.cachedModels.length > 0) {
         // Use cached list — fast, no network call.
-        if (tryRegisterProvider(pi, key, p)) registered.push(p.displayName);
+        if (tryRegisterProvider(pi, key, p, nativeCatalog)) registered.push(p.displayName);
         else failed.push(p.displayName);
       } else {
         // Cache is empty (e.g. migrated from older config).  Try a live fetch,
@@ -1057,7 +1353,7 @@ export default async function (pi: ExtensionAPI) {
           if (models.length > 0) {
             p.cachedModels = models;
             saveConfig(config);
-            if (tryRegisterProvider(pi, key, p)) {
+            if (tryRegisterProvider(pi, key, p, nativeCatalog)) {
               registered.push(`${p.displayName} (refreshed)`);
             } else {
               failed.push(p.displayName);
@@ -1343,7 +1639,7 @@ export default async function (pi: ExtensionAPI) {
         modelsKeepTask: tpl.modelsKeepTask,
       };
       saveConfig(config);
-      if (!tryRegisterProvider(pi, key, config.providers[key])) {
+      if (!tryRegisterProvider(pi, key, config.providers[key], nativeCatalog)) {
         ctx.ui.notify(
           `${tpl.displayName} was saved but could not be registered with pi. ` +
           `Run /compat-logout to remove it, or check the log for details.`,
@@ -1410,7 +1706,7 @@ export default async function (pi: ExtensionAPI) {
             // flaky refresh must never blank out a working provider's models.
             p.cachedModels = mergeModelMetadata(p.cachedModels, models);
             saveConfig(config);
-            if (tryRegisterProvider(pi, key, p)) {
+            if (tryRegisterProvider(pi, key, p, nativeCatalog)) {
               refreshed.push(`${p.displayName} (${models.length})`);
             } else {
               failed.push(p.displayName);
