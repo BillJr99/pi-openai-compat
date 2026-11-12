@@ -36,6 +36,8 @@ import {
   isAuthFailure,
   isLocalUrl,
   loadNativeCatalogModels,
+  importPiAiCatalog,
+  PI_AI_CATALOG_SPECIFIERS,
   mergeModelMetadata,
   normalizeInput,
   normalizeTokenCount,
@@ -674,10 +676,38 @@ describe("reasoning capabilities are discovered instead of silently disabled", (
     assert.equal(body.reasoning_effort, "high");
   });
 
-  test("pi's built-in catalog is available through the compatibility entrypoint", () => {
-    const native = loadNativeCatalogModels();
+  test("pi's built-in catalog is available through the compatibility entrypoint", async () => {
+    const native = loadNativeCatalogModels(await importPiAiCatalog());
     assert.ok(Array.isArray(native));
     assert.ok(native.length > 0, "pi should expose at least one built-in model");
+  });
+
+  test("a pi without the catalog modules still loads, with no native inference", async () => {
+    const tried: string[] = [];
+    const catalog = await importPiAiCatalog(PI_AI_CATALOG_SPECIFIERS, async (specifier) => {
+      tried.push(specifier);
+      throw new Error(`Cannot find module '${specifier}'`);
+    });
+    assert.equal(catalog, undefined);
+    assert.deepEqual(tried, [...PI_AI_CATALOG_SPECIFIERS]);
+    assert.deepEqual(loadNativeCatalogModels(catalog), []);
+  });
+
+  test("a module without getProviders/getModels is skipped for the next name", async () => {
+    const good = { getProviders: () => ["p"], getModels: () => [{ id: "m", reasoning: true }, null, { noId: 1 }] };
+    const catalog = await importPiAiCatalog(["root", "compat"], async (specifier) =>
+      specifier === "root" ? { StringEnum: () => {} } : good);
+    assert.equal(catalog, good);
+    assert.deepEqual(loadNativeCatalogModels(catalog), [{ id: "m", reasoning: true }]);
+  });
+
+  test("/compat-refresh keeps a hand-written thinking map over a derived one", () => {
+    const handMap = { off: null, high: "max" };
+    const [merged] = mergeModelMetadata(
+      [{ id: "m", thinkingLevelMap: handMap }],
+      [{ id: "m", reasoning: true, thinkingLevelMap: { off: "none", low: "low", high: "high" } }],
+    );
+    assert.deepEqual(merged.thinkingLevelMap, handMap);
   });
 });
 
