@@ -17,10 +17,6 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-// Pi maps the legacy `@mariozechner/*` package names to its own host copies.
-// This stays a dev dependency: distributed extensions must not ship the
-// host-provided pi packages as runtime dependencies.
-import * as piAi from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -1066,24 +1062,65 @@ export async function fetchModels(
 // Provider registration helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** The two pi-ai catalog functions this extension reads. */
+export interface PiAiCatalog {
+  getProviders: () => unknown;
+  getModels: (provider: string) => unknown;
+}
+
 /**
- * Load pi's built-in model catalog through the extension-compatible pi-ai
- * entrypoint. Pi aliases the legacy package name to its current compatibility
- * module, so this works across the old and current package layouts without
- * making pi-ai a runtime dependency of the published extension.
+ * Where pi's built-in catalog may live, in the order tried. Pi maps all of
+ * these to its own host copy of pi-ai, so pi-ai stays a dev dependency only.
+ * `getProviders`/`getModels` moved from the pi-ai root to `/compat`; pi still
+ * aliases the root to `/compat` for extensions, but has said that alias will
+ * be removed, and older pi only has the legacy `@mariozechner` root.
  */
-export function loadNativeCatalogModels(): NativeCatalogModel[] {
+export const PI_AI_CATALOG_SPECIFIERS = [
+  "@earendil-works/pi-ai/compat",
+  "@mariozechner/pi-ai/compat",
+  "@earendil-works/pi-ai",
+  "@mariozechner/pi-ai",
+] as const;
+
+/**
+ * Find pi's built-in catalog without a static import. A static import of a
+ * module pi no longer provides would stop the whole extension from loading;
+ * here a missing or changed module only costs the native-catalog inference,
+ * and every provider still registers.
+ */
+export async function importPiAiCatalog(
+  specifiers: readonly string[] = PI_AI_CATALOG_SPECIFIERS,
+  importer: (specifier: string) => Promise<unknown> = (specifier) => import(specifier),
+): Promise<PiAiCatalog | undefined> {
+  for (const specifier of specifiers) {
+    try {
+      const mod = await importer(specifier);
+      if (isRecord(mod) && typeof mod.getProviders === "function" && typeof mod.getModels === "function") {
+        return mod as unknown as PiAiCatalog;
+      }
+    } catch {
+      // Not provided by this pi; try the next name.
+    }
+  }
+  return undefined;
+}
+
+/** Read every model from pi's built-in catalog, or nothing if it is unavailable. */
+export function loadNativeCatalogModels(catalog: PiAiCatalog | undefined): NativeCatalogModel[] {
   const models: NativeCatalogModel[] = [];
+  if (!catalog) return models;
   try {
-    const providerIds = piAi.getProviders() as unknown as unknown;
+    const providerIds = catalog.getProviders();
     if (!Array.isArray(providerIds)) return models;
-    const getModelsForProvider = piAi.getModels as unknown as
-      (provider: string) => unknown[];
+    const getModelsForProvider = catalog.getModels;
     for (const provider of providerIds) {
       if (typeof provider !== "string") continue;
       try {
         const providerModels = getModelsForProvider(provider);
-        if (Array.isArray(providerModels)) models.push(...providerModels as NativeCatalogModel[]);
+        if (!Array.isArray(providerModels)) continue;
+        for (const model of providerModels) {
+          if (isRecord(model) && typeof model.id === "string") models.push(model as unknown as NativeCatalogModel);
+        }
       } catch {
         // One unavailable provider must not prevent inference for the rest.
       }
@@ -1308,7 +1345,9 @@ export function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel
       maxTokens: m.maxTokens ?? old.maxTokens,
       reasoning: m.reasoning ?? old.reasoning,
       input: m.input ?? old.input,
-      thinkingLevelMap: m.thinkingLevelMap ?? old.thinkingLevelMap,
+      // A hand-written map wins: the catalog can now supply a derived map,
+      // and README promises /compat-refresh keeps hand-edited fields.
+      thinkingLevelMap: old.thinkingLevelMap ?? m.thinkingLevelMap,
       samplingParams: m.samplingParams ?? old.samplingParams,
       compat: m.compat ?? old.compat,
     };
@@ -1377,7 +1416,7 @@ export function tryRegisterProvider(
 
 export default async function (pi: ExtensionAPI) {
   let config = loadConfig();
-  const nativeCatalog = loadNativeCatalogModels();
+  const nativeCatalog = loadNativeCatalogModels(await importPiAiCatalog());
 
   // Self-heal older configs: backfill discovery fields (modelsUrl/idField/
   // keepTask) we can derive from the template without prompting. Persist once
