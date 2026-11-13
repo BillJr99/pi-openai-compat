@@ -90,7 +90,9 @@ type RawModel = {
   id?: string;
   name?: string;
   context_window?: unknown;
+  context_length?: unknown;
   max_tokens?: unknown;
+  max_output_tokens?: unknown;
   reasoning?: unknown;
   input?: unknown;
   task?: { name?: string };
@@ -1048,8 +1050,8 @@ export async function fetchModels(
         "";
       return {
         id,
-        contextWindow: normalizeTokenCount(m.context_window, MAX_CONTEXT_WINDOW),
-        maxTokens: normalizeTokenCount(m.max_tokens, MAX_OUTPUT_TOKENS),
+        contextWindow: normalizeTokenCount(m.context_window, MAX_CONTEXT_WINDOW) ?? normalizeTokenCount(m.context_length, MAX_CONTEXT_WINDOW),
+        maxTokens: normalizeTokenCount(m.max_tokens, MAX_OUTPUT_TOKENS) ?? normalizeTokenCount(m.max_output_tokens, MAX_OUTPUT_TOKENS),
         ...normalizeRawCapabilities(m),
         input: normalizeInput(m.input),
       };
