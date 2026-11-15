@@ -78,6 +78,14 @@ const BUILTIN = {
     keyless: false,
     keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
   },
+  meta_muse: {
+    displayName: "Meta Muse",
+    baseUrl: "https://api.meta.ai/v1",
+    keyless: false,
+    keyHint: "dev.meta.ai (Meta developer console; Bearer API key)",
+    modelFilter: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", "muse-ember-1.0"],
+    fallbackModels: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", "muse-ember-1.0"],
+  },
   kilo: {
     displayName: "Kilo AI",
     baseUrl: "https://api.kilo.ai/api/gateway",
@@ -151,6 +159,7 @@ const BUILTIN_AUTH = {
   tokenrouter: "API key from the TokenRouter console at tokenrouter.com (model prices at tokenrouter.com/models)",
   atria_asi: "`atr_...` key from api.atria-asi.ai/console/keys (Google sign-in)",
   unbiased_ai: "`sk_...` key from platform.unbiased.ai (signup reviewed by hand)",
+  meta_muse: "API key from the Meta developer console at dev.meta.ai (Chat Completions; models pinned to Muse Wonder/Spark/Ember)",
   kilo: "API key from app.kilo.ai → Your Profile (personal account), at the bottom of the page; needs account credits",
   modelscope: "`ms-...` SDK token from modelscope.cn/my/myaccesstoken",
   aion_labs: "API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs)",
