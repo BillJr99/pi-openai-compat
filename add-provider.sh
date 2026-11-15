@@ -258,8 +258,10 @@ function normalizeModels(body, idField, keepTask) {
         typeof v === "number" && Number.isFinite(v) && v > 0
           ? Math.min(Math.floor(v), max)
           : undefined;
-      const ctx = num(m ? m.context_window : undefined, 10000000);
-      const max = num(m ? m.max_tokens : undefined, 1000000);
+      // Same fallbacks as fetchModels(): context_length and max_output_tokens
+      // when the usual fields are missing or invalid.
+      const ctx = num(m ? m.context_window : undefined, 10000000) ?? num(m ? m.context_length : undefined, 10000000);
+      const max = num(m ? m.max_tokens : undefined, 1000000) ?? num(m ? m.max_output_tokens : undefined, 1000000);
       if (ctx !== undefined) out.contextWindow = ctx;
       if (max !== undefined) out.maxTokens = max;
       return out;
