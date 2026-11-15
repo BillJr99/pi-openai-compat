@@ -312,6 +312,23 @@ export const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "demonroute.com (Console → Keys)",
   },
+  meta_muse: {
+    displayName: "Meta Muse",
+    baseUrl: "https://api.meta.ai/v1",
+    keyless: false,
+    // Meta Model API. Per dev.meta.ai/docs/models (November 2026) the Muse
+    // Wonder, Spark and Ember chat models serve Chat Completions (as well as
+    // Responses and Messages), so the default openai-completions api works.
+    // GET /v1/models also lists non-chat ids (muse-image-1.0,
+    // muse-voice-transcribe-1.0, sam-3.1), which modelFilter keeps out of the
+    // /model picker. The gateway authenticates before it routes (a made-up
+    // path answers the same 401 invalid_api_key without a key), so the
+    // catalog route could not be confirmed; fallbackModels covers a failed
+    // discovery, and isAuthFailure still refuses to save a rejected key.
+    modelFilter: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", "muse-ember-1.0"],
+    fallbackModels: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", "muse-ember-1.0"],
+    keyHint: "dev.meta.ai (Meta developer console; Bearer API key)",
+  },
   nvidia_nim: {
     displayName: "NVIDIA NIM",
     baseUrl: "https://integrate.api.nvidia.com/v1",

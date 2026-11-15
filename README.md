@@ -39,6 +39,7 @@ If pi is already running when you install, type `/reload` first.
 |---|---|---|
 | **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-...` from openrouter.ai/keys |
 | **Demon Route** | `https://api.demonroute.com/v1` | API key from demonroute.com (Console → Keys) |
+| **Meta Muse** | `https://api.meta.ai/v1` | API key from the Meta developer console at dev.meta.ai (Chat Completions; models pinned to Muse Wonder/Spark/Ember) |
 | **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | `nvapi-...` from build.nvidia.com |
 | **Nous Research Portal** | `https://inference-api.nousresearch.com/v1` | Nous Portal API key |
 | **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | API key from aistudio.google.com/apikey |
