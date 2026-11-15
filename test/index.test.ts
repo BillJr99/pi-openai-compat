@@ -884,6 +884,48 @@ describe("catalog failures: a missing endpoint is not a bad key", () => {
   });
 });
 
+describe("catalog token limit aliases", () => {
+  test("aliases preserve validation, legacy precedence, refresh and registration", async (t) => {
+    const original = globalThis.fetch;
+    t.after(() => { globalThis.fetch = original; });
+    globalThis.fetch = (async () => ({ ok: true, json: async () => ({ data: [
+      { id: "alias", context_length: 872_000, max_output_tokens: 128_000 },
+      { id: "legacy", context_window: 100_000, context_length: 200_000, max_tokens: 1_000, max_output_tokens: 2_000 },
+      { id: "invalid", context_window: "bad", context_length: 200_000, max_tokens: -1, max_output_tokens: 8_000 },
+      { id: "clamp", context_length: 1e12, max_output_tokens: 1e12 },
+      { id: "missing", context_length: "bad", max_output_tokens: 0 },
+    ] }) })) as any;
+    const models = await fetchModels("https://example.invalid/v1", null);
+    const byId = (id: string) => models.find((m) => m.id === id)!;
+    assert.equal(byId("alias").contextWindow, 872_000);
+    assert.equal(byId("alias").maxTokens, 128_000);
+    assert.equal(byId("legacy").contextWindow, 100_000);
+    assert.equal(byId("legacy").maxTokens, 1_000);
+    assert.equal(byId("invalid").contextWindow, 200_000);
+    assert.equal(byId("invalid").maxTokens, 8_000);
+    assert.equal(byId("clamp").contextWindow, MAX_CONTEXT_WINDOW);
+    assert.equal(byId("clamp").maxTokens, MAX_OUTPUT_TOKENS);
+    const merged = mergeModelMetadata([{ id: "alias", contextWindow: 1, maxTokens: 2 }, { id: "missing", contextWindow: 42, maxTokens: 43 }], models);
+    assert.equal(merged.find((m) => m.id === "alias")!.contextWindow, 872_000);
+    assert.equal(merged.find((m) => m.id === "alias")!.maxTokens, 128_000);
+    assert.equal(merged.find((m) => m.id === "missing")!.contextWindow, 42);
+    assert.equal(merged.find((m) => m.id === "missing")!.maxTokens, 43);
+    const [registered] = buildProviderModels([byId("alias")]);
+    assert.equal(registered.contextWindow, 872_000);
+    assert.equal(registered.maxTokens, 128_000);
+    const { pi, calls } = fakePi();
+    registerProvider(pi, "test", {
+      displayName: "Test", baseUrl: "https://example.invalid/v1", apiKey: null,
+      cachedModels: [byId("alias")],
+    });
+    assert.equal(calls[0].config.models[0].contextWindow, 872_000);
+    assert.equal(calls[0].config.models[0].maxTokens, 128_000);
+    const [defaults] = buildProviderModels([byId("missing")]);
+    assert.equal(defaults.contextWindow, 128_000);
+    assert.equal(defaults.maxTokens, 4_096);
+  });
+});
+
 describe("catalog auth headers", () => {
   test("OpenAI-compatible catalogs get the key as a Bearer token", () => {
     const h = catalogHeaders("https://llm.jetstream-cloud.org/api/models", "k");
