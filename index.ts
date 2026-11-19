@@ -398,8 +398,6 @@ export const TEMPLATES: Record<string, {
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       "@cf/meta/llama-3.1-8b-instruct",
-      "@cf/qwen/qwen3-30b-a3b-fp8",
-      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
     ],
   },
   cloudflare_ai_gateway: {
@@ -420,8 +418,6 @@ export const TEMPLATES: Record<string, {
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       "@cf/meta/llama-3.1-8b-instruct",
-      "@cf/qwen/qwen3-30b-a3b-fp8",
-      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
     ],
   },
   zhipu: {
@@ -996,6 +992,24 @@ export function catalogHeaders(url: string, apiKey: string | null): Record<strin
   return headers;
 }
 
+// A stale Cloudflare catalog must not put retired Workers AI IDs back.
+const RETIRED_WORKERS_AI_MODELS = new Set([
+  "@cf/qwen/qwen3-30b-a3b-fp8",
+  "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+]);
+
+function isCloudflareCatalog(baseUrl: string): boolean {
+  try {
+    const { protocol, hostname, pathname } = new URL(baseUrl);
+    return protocol === "https:" && (
+      (hostname === "api.cloudflare.com" && /^\/client\/v4\/accounts\/[^/]+\/ai\//.test(pathname)) ||
+      hostname === "gateway.ai.cloudflare.com"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchModels(
   baseUrl: string,
   apiKey: string | null,
@@ -1051,6 +1065,7 @@ export async function fetchModels(
     );
   }
 
+  const cloudflare = isCloudflareCatalog(baseUrl);
   return raw
     .filter((m) => {
       if (keepTask === undefined) return true;
@@ -1073,7 +1088,7 @@ export async function fetchModels(
         input: normalizeInput(m.input),
       };
     })
-    .filter((m) => Boolean(m.id))
+    .filter((m) => Boolean(m.id) && !(cloudflare && RETIRED_WORKERS_AI_MODELS.has(m.id)))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 

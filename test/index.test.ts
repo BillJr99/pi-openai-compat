@@ -76,6 +76,38 @@ function fakePi() {
 
 const oneModel = [{ id: "llama3" }];
 
+describe("retired Cloudflare Workers AI models", () => {
+  const retired = ["@cf/qwen/qwen3-30b-a3b-fp8", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b"];
+  const active = "@cf/meta/llama-4-scout-17b-16e-instruct";
+
+  test("both Cloudflare fallbacks retain active models but omit the retired IDs", () => {
+    for (const template of [TEMPLATES.cloudflare_workers, TEMPLATES.cloudflare_ai_gateway]) {
+      assert.ok(template.fallbackModels?.includes(active));
+      for (const id of retired) assert.ok(!template.fallbackModels?.includes(id), id);
+    }
+  });
+
+  test("refresh cannot save retired IDs from a stale Cloudflare catalog", async (t) => {
+    t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+      data: [...retired, active].map((id) => ({ id, name: id, task: { name: "Text Generation" } })),
+    })));
+    const cached = [...retired, active].map((id) => ({ id, contextWindow: 32000 }));
+    for (const [baseUrl, overrides] of [
+      ["https://api.cloudflare.com/client/v4/accounts/test/ai/v1", {
+        url: "https://api.cloudflare.com/client/v4/accounts/test/ai/models/search",
+        idField: "name", keepTask: "Text Generation",
+      }],
+      ["https://gateway.ai.cloudflare.com/v1/test/test/workers-ai/v1", {}],
+    ] as const) {
+      const refreshed = mergeModelMetadata(cached, await fetchModels(baseUrl, null, overrides));
+      assert.deepEqual(refreshed.map((model) => model.id), [active]);
+      assert.equal(refreshed[0].contextWindow, 32000);
+    }
+    const unrelated = await fetchModels("https://example.invalid/v1", null);
+    assert.deepEqual(unrelated.map((model) => model.id).sort(), [...retired, active].sort());
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 describe("Finding 1 — keyless providers must still register (PR #30 regression)", () => {
   test("a keyless provider is given a non-empty placeholder key", () => {
