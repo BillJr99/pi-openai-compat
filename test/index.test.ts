@@ -45,6 +45,7 @@ import {
   registerProvider,
   resolvePromptCaching,
   isClaudeModelId,
+  forwardsAnthropicMarkers,
   restrictPermissions,
   tryRegisterProvider,
 } from "../index.ts";
@@ -1012,7 +1013,7 @@ describe("promptCaching", () => {
 
   test("defaults: caching on at the short (5m) tier, warming off", () => {
     assert.deepEqual(resolvePromptCaching(), D);
-    const [m] = buildProviderModels([{ id: "anthropic/claude-sonnet-5" }], [], undefined, resolvePromptCaching()) as any[];
+    const [m] = buildProviderModels([{ id: "anthropic/claude-sonnet-5" }], [], "https://openrouter.ai/api/v1", resolvePromptCaching()) as any[];
     assert.deepEqual(m.compat, { cacheControlFormat: "anthropic", supportsLongCacheRetention: false });
     // No lifetimes, so pi never warms it.
     assert.equal(m.promptCache, undefined);
@@ -1057,11 +1058,12 @@ describe("promptCaching", () => {
 
   test("warming on declares lifetimes; warming off never does", () => {
     const long = resolvePromptCaching({ retention: "long", warming: "on" });
-    assert.deepEqual(promptCachingFor("claude-opus-5-5", undefined, long)?.promptCache, { short: 300, long: 3600 });
+    const or = "https://openrouter.ai/api/v1";
+    assert.deepEqual(promptCachingFor("claude-opus-5-5", or, long)?.promptCache, { short: 300, long: 3600 });
     const short = resolvePromptCaching({ warming: "on" });
-    assert.deepEqual(promptCachingFor("claude-opus-5-5", undefined, short)?.promptCache, { short: 300 });
+    assert.deepEqual(promptCachingFor("claude-opus-5-5", or, short)?.promptCache, { short: 300 });
     const off = resolvePromptCaching({ retention: "long" });
-    assert.deepEqual(promptCachingFor("claude-opus-5-5", undefined, off)?.promptCache, {});
+    assert.deepEqual(promptCachingFor("claude-opus-5-5", or, off)?.promptCache, {});
     assert.deepEqual(promptCachingFor("gpt-5.5", "https://api.openai.com/v1", off)?.promptCache, {});
   });
 
@@ -1100,7 +1102,7 @@ describe("promptCaching", () => {
       id: "claude-sonnet-5",
       compat: { supportsLongCacheRetention: false, supportsStore: false },
       promptCache: { short: 120 },
-    }], [], undefined, caching) as any[];
+    }], [], "http://localhost:4000/v1", caching) as any[];
     assert.deepEqual(m.compat, {
       cacheControlFormat: "anthropic", supportsLongCacheRetention: false, supportsStore: false,
     });
@@ -1124,6 +1126,19 @@ describe("promptCaching", () => {
     calls.length = 0;
     registerProvider(pi, "llmproxy", { ...provider, promptCaching: undefined }, [], { retention: "none" });
     assert.equal(calls[0].models[0].compat, undefined);
+  });
+
+  test("auto sends Anthropic markers only to hosts known to forward them", () => {
+    assert.equal(forwardsAnthropicMarkers("https://openrouter.ai/api/v1"), true);
+    assert.equal(forwardsAnthropicMarkers("https://api.anthropic.com/v1"), true);
+    assert.equal(forwardsAnthropicMarkers("http://127.0.0.1:8080/v1"), true);
+    assert.equal(forwardsAnthropicMarkers("https://some-reseller.example/v1"), false);
+    const reseller = promptCachingFor("claude-sonnet-5", "https://some-reseller.example/v1", resolvePromptCaching());
+    assert.equal(reseller?.compat.cacheControlFormat, undefined);
+    assert.equal(reseller?.compat.promptCacheKeyMode, "auto");
+    const forced = promptCachingFor("claude-sonnet-5", "https://some-reseller.example/v1",
+      resolvePromptCaching({ format: "anthropic" }));
+    assert.equal(forced?.compat.cacheControlFormat, "anthropic");
   });
 
   test("isClaudeModelId", () => {

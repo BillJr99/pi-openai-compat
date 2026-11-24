@@ -314,14 +314,14 @@ or on one provider (overrides the top-level value):
 | `retention` | `"short"` | `"none"`: no caching flags. `"short"`: the 5-minute tier. `"long"`: also allow the 1-hour tier, meaning the Anthropic `"ttl": "1h"` cache, and OpenAI `prompt_cache_retention: "24h"` on `api.openai.com` only (other OpenAI-compatible servers may reject that field). |
 | `enabled` | `true` | The same switch as a bool, kept for compatibility: `false` is `"retention": "none"`. Setting `retention` to `"short"` or `"long"` turns caching on unless the same block says `"enabled": false`; turning it on over an inherited `"none"` gives `"short"`. |
 | `warming` | `"off"` | `"off"`: the models declare no cache lifetimes, so pi never warms them, whatever its own `cacheWarming` setting says. `"on"`: they declare their lifetimes (Anthropic 300 s, plus 3600 s with `"long"`; OpenAI 300 s, plus 86400 s with `"long"`, on `api.openai.com` only), and pi warms them as its global `cacheWarming` (`"streaming"` or `"idle"`) allows. |
-| `format` | `"auto"` | `"auto"`: Anthropic markers for Claude model ids (any id containing `claude` or starting with `anthropic/`), OpenAI style for the rest. `"anthropic"` or `"openai"` forces one style for every model; `"none"` adds nothing. |
+| `format` | `"auto"` | `"auto"`: Anthropic markers for Claude model ids (any id containing `claude` or starting with `anthropic/`) on hosts known to forward them (OpenRouter, `api.anthropic.com`, and a local proxy on `localhost`, `127.0.0.1`, `::1` or a `.local` name), OpenAI style for everything else. `"anthropic"` or `"openai"` forces one style for every model; `"none"` adds nothing. |
 | `promptCacheKey` | `"auto"` | pi's `promptCacheKeyMode` for OpenAI-style models: `"auto"`, `"enabled"` (send `prompt_cache_key` whenever caching is active, useful for a proxy that routes on it) or `"disabled"`. |
 
 What each model gets unless `retention` is `"none"`:
 
 | Model | `compat` flags added | `promptCache` lifetimes (only with `warming: "on"`) |
 |---|---|---|
-| Claude (Anthropic format) | `cacheControlFormat: "anthropic"`, `supportsLongCacheRetention` (true with `"long"`) | `short: 300`, plus `long: 3600` with `"long"` |
+| Claude on a forwarding host, or any model with `format: "anthropic"` | `cacheControlFormat: "anthropic"`, `supportsLongCacheRetention` (true with `"long"`) | `short: 300`, plus `long: 3600` with `"long"` |
 | Others on `api.openai.com` | `promptCacheKeyMode`, `supportsLongCacheRetention` (true with `"long"`) | `short: 300`, plus `long: 86400` with `"long"` |
 | Others elsewhere | `promptCacheKeyMode`, `supportsLongCacheRetention: false` | none (the upstream caches automatically, if at all) |
 

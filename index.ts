@@ -1461,6 +1461,24 @@ export function isClaudeModelId(id: string): boolean {
   return lower.includes("claude") || lower.startsWith("anthropic/");
 }
 
+/**
+ * Hosts known to forward Anthropic cache_control markers on an OpenAI-shaped
+ * request: OpenRouter, Anthropic's own OpenAI-compatible endpoint, and a
+ * local proxy (llmproxy, LiteLLM and the like on localhost or a .local name).
+ * "auto" sends markers only there; any other host needs format "anthropic".
+ */
+export function forwardsAnthropicMarkers(baseUrl?: string): boolean {
+  if (!baseUrl) return false;
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    if (host === "openrouter.ai" || host.endsWith(".openrouter.ai")) return true;
+    if (host === "api.anthropic.com") return true;
+  } catch {
+    return false;
+  }
+  return isLocalUrl(baseUrl);
+}
+
 function isOpenAIHost(baseUrl?: string): boolean {
   try {
     return new URL(baseUrl ?? "").hostname.toLowerCase() === "api.openai.com";
@@ -1485,7 +1503,7 @@ export function promptCachingFor(
   if (!caching?.enabled || caching.retention === "none" || caching.format === "none") return undefined;
   const long = caching.retention === "long";
   const anthropic = caching.format === "anthropic" ||
-    (caching.format === "auto" && isClaudeModelId(modelId));
+    (caching.format === "auto" && isClaudeModelId(modelId) && forwardsAnthropicMarkers(baseUrl));
   if (anthropic) {
     return {
       compat: { cacheControlFormat: "anthropic", supportsLongCacheRetention: long },
