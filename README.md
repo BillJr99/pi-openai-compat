@@ -243,7 +243,8 @@ provider's `/models` catalog does not report them:
 | `input` | `["text"]` or `["text","image"]` | `["text"]` | Modalities pi may send; `image` lets pi attach image blocks. Any other value is ignored. |
 | `thinkingLevelMap` | object | omitted | pi thinking-level remap, passed through to the registered model. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); string values are sent to the provider, `null` hides an unsupported level. See [pi's docs](https://pi.dev/docs/latest/models#thinking-level-map). A map with at least one positive level also enables thinking, so `reasoning` does not have to be set as well. |
 | `samplingParams` | object | omitted | **Not currently applied.** Preserved in the config and passed to pi, but pi's `registerProvider` builds each model from a fixed field list that does not include it (verified against pi 0.73.1), so it has no effect today. Kept for forward compatibility. |
-| `compat` | object | omitted | OpenAI compatibility flags for the model (`thinkingFormat`, `chatTemplateKwargs`, `maxTokensField`, `supportsDeveloperRole`, …). See [pi's docs](https://pi.dev/docs/latest/models#openai-compatibility). |
+| `compat` | object | omitted | OpenAI compatibility flags for the model (`thinkingFormat`, `chatTemplateKwargs`, `maxTokensField`, `supportsDeveloperRole`, …). See [pi's docs](https://pi.dev/docs/latest/models#openai-compatibility). Flags set here win over the ones [`promptCaching`](#prompt-caching) derives. |
+| `promptCache` | object | derived / omitted | Prompt cache lifetimes in seconds for pi's retention tiers, e.g. `{ "short": 300, "long": 3600 }`. Pi warms only tiers with a known lifetime. Wins over the lifetimes `promptCaching` derives, and makes the model eligible for pi's cache warming. |
 
 `contextWindow` and `maxTokens` are validated before they reach pi: a value
 that is not a positive finite number is ignored in favor of the default, and
@@ -285,6 +286,55 @@ hand and `/reload`:
 
 `/compat-refresh` keeps these hand-edited fields for any model ID that is still
 present in the refreshed catalog; a field the provider does report always wins.
+
+#### Prompt caching
+
+Every compat provider is registered with pi as a plain `openai-completions`
+endpoint, so pi cannot tell on its own that a model such as
+`anthropic/claude-sonnet-5` behind OpenRouter or an OpenAI-compatible proxy is
+only cached when the request carries Anthropic `cache_control` markers. The
+`promptCaching` setting tells it. It is **on by default at the 5-minute tier,
+with warming off**, and can be set at the top of `config.json` (every provider)
+or on one provider (overrides the top-level value):
+
+```json
+{
+  "promptCaching": { "retention": "long", "warming": "off" },
+  "providers": {
+    "openrouter": { "...": "...", "promptCaching": { "format": "anthropic" } },
+    "local":      { "...": "...", "promptCaching": { "retention": "none" } }
+  }
+}
+```
+
+`true` or `false` toggles only `enabled`; an object overrides individual keys:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `retention` | `"short"` | `"none"`: no caching flags. `"short"`: the 5-minute tier. `"long"`: also allow the 1-hour tier, meaning the Anthropic `"ttl": "1h"` cache, and OpenAI `prompt_cache_retention: "24h"` on `api.openai.com` only (other OpenAI-compatible servers may reject that field). |
+| `enabled` | `true` | The same switch as a bool, kept for compatibility: `false` is `"retention": "none"`. Setting `retention` to `"short"` or `"long"` turns caching on unless the same block says `"enabled": false`; turning it on over an inherited `"none"` gives `"short"`. |
+| `warming` | `"off"` | `"off"`: the models declare no cache lifetimes, so pi never warms them, whatever its own `cacheWarming` setting says. `"on"`: they declare their lifetimes (Anthropic 300 s, plus 3600 s with `"long"`; OpenAI 300 s, plus 86400 s with `"long"`, on `api.openai.com` only), and pi warms them as its global `cacheWarming` (`"streaming"` or `"idle"`) allows. |
+| `format` | `"auto"` | `"auto"`: Anthropic markers for Claude model ids (any id containing `claude` or starting with `anthropic/`), OpenAI style for the rest. `"anthropic"` or `"openai"` forces one style for every model; `"none"` adds nothing. |
+| `promptCacheKey` | `"auto"` | pi's `promptCacheKeyMode` for OpenAI-style models: `"auto"`, `"enabled"` (send `prompt_cache_key` whenever caching is active, useful for a proxy that routes on it) or `"disabled"`. |
+
+What each model gets unless `retention` is `"none"`:
+
+| Model | `compat` flags added | `promptCache` lifetimes (only with `warming: "on"`) |
+|---|---|---|
+| Claude (Anthropic format) | `cacheControlFormat: "anthropic"`, `supportsLongCacheRetention` (true with `"long"`) | `short: 300`, plus `long: 3600` with `"long"` |
+| Others on `api.openai.com` | `promptCacheKeyMode`, `supportsLongCacheRetention` (true with `"long"`) | `short: 300`, plus `long: 86400` with `"long"` |
+| Others elsewhere | `promptCacheKeyMode`, `supportsLongCacheRetention: false` | none (the upstream caches automatically, if at all) |
+
+With `cacheControlFormat: "anthropic"`, pi places `cache_control` markers on the
+system prompt, the last tool definition and the newest user, assistant or
+tool-result text. Which tier a request uses is pi's own setting:
+`cacheRetention` in pi's settings or the `PI_CACHE_RETENTION` environment
+variable (`long` selects the long tier, which falls back to the short one where
+`supportsLongCacheRetention` is false). Hand-written `compat` flags and
+`promptCache` on a cached model always win over these derived values (a
+hand-written `promptCache` makes that one model eligible for warming even with
+`warming: "off"`), and a change takes effect on the next `/reload` or pi
+restart.
 
 #### Thinking levels on providers that do not take `reasoning_effort`
 

@@ -42,6 +42,51 @@ interface CachedModel {
   thinkingLevelMap?: Record<string, string | null>;
   samplingParams?: Record<string, unknown>;
   compat?: Record<string, unknown>;
+  // Optional hand-written prompt-cache lifetimes (seconds) for pi's short and
+  // long retention tiers. Wins over the lifetimes promptCaching derives.
+  promptCache?: PromptCacheLifetimes;
+}
+
+/** pi's per-model prompt cache lifetimes, in seconds. */
+export interface PromptCacheLifetimes {
+  short?: number;
+  long?: number;
+}
+
+/**
+ * Prompt-caching opt-in, at the top of config.json (every provider) or on one
+ * provider (overrides the top-level value). `true`/`false` toggles `enabled`.
+ *
+ *   retention      "none" (no caching flags), "short" (default: the
+ *                  5-minute tier) or "long" (also allow the 1-hour tier:
+ *                  Anthropic ttl "1h"; OpenAI prompt_cache_retention "24h",
+ *                  on api.openai.com only)
+ *   enabled        the same switch as a bool, kept for compatibility:
+ *                  false is retention "none" (default true)
+ *   warming        "off" (default) or "on": whether the models declare cache
+ *                  lifetimes, which is what makes pi willing to warm them
+ *   format         "auto" (default): Anthropic-style cache_control markers for
+ *                  Claude models, OpenAI-style prompt_cache_key for the rest;
+ *                  "anthropic" / "openai" force one style; "none" adds nothing
+ *   promptCacheKey pi's promptCacheKeyMode for OpenAI-style models:
+ *                  "auto" (default), "enabled" or "disabled"
+ */
+export type PromptCachingSetting =
+  | boolean
+  | {
+    enabled?: boolean;
+    format?: "auto" | "anthropic" | "openai" | "none";
+    retention?: "none" | "short" | "long";
+    warming?: "off" | "on";
+    promptCacheKey?: "auto" | "enabled" | "disabled";
+  };
+
+export interface ResolvedPromptCaching {
+  enabled: boolean;
+  format: "auto" | "anthropic" | "openai" | "none";
+  retention: "none" | "short" | "long";
+  warming: "off" | "on";
+  promptCacheKey: "auto" | "enabled" | "disabled";
 }
 
 /**
@@ -76,6 +121,8 @@ interface ProviderConfig {
   // matches its template and can't be auto-migrated, so the notice is shown
   // only once rather than on every session_start while the config stays stale.
   staleNotified?: boolean;
+  /** Prompt-caching opt-in for this provider; overrides the top-level value. */
+  promptCaching?: PromptCachingSetting;
 }
 
 interface ExtensionConfig {
@@ -83,6 +130,8 @@ interface ExtensionConfig {
   previousModel: { provider: string; id: string } | null;
   /** Every key here is a registered provider. Presence = registered. */
   providers: Record<string, ProviderConfig>;
+  /** Prompt-caching opt-in for every provider (each may override it). */
+  promptCaching?: PromptCachingSetting;
 }
 
 /** Loose shape for a single entry in any /models response. */
@@ -812,6 +861,11 @@ function loadConfig(): ExtensionConfig {
       previousModel: (raw.previousModel as any) ?? null,
       providers: (raw.providers as Record<string, ProviderConfig>) ?? {},
     };
+    // Kept only when present, so saving never adds the key to a config that
+    // did not have it.
+    if (raw.promptCaching !== undefined) {
+      config.promptCaching = raw.promptCaching as PromptCachingSetting;
+    }
 
     // Migrate: cachedModels missing on older records.
     for (const key of Object.keys(config.providers)) {
@@ -1336,10 +1390,138 @@ export function inferNativeModelMetadata(
   return inferred;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompt caching
+//
+// pi decides when to cache (its cacheRetention setting or PI_CACHE_RETENTION);
+// a model's compat flags decide how the request asks for it. A compat model is
+// registered as plain openai-completions, so pi cannot tell that an id like
+// anthropic/claude-sonnet-5 behind OpenRouter or llmproxy needs Anthropic
+// cache_control markers to be cached at all. promptCaching supplies those flags.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CACHE_FORMATS = new Set(["auto", "anthropic", "openai", "none"]);
+const CACHE_KEY_MODES = new Set(["auto", "enabled", "disabled"]);
+
+/** Published lifetimes: Anthropic 5 minutes / 1 hour, OpenAI in-memory / 24 hours. */
+const ANTHROPIC_CACHE_LIFETIMES = { short: 300, long: 3_600 };
+const OPENAI_CACHE_LIFETIMES = { short: 300, long: 86_400 };
+
+/**
+ * Apply one settings layer. `retention` and `enabled` are two spellings of one
+ * switch, reconciled per layer: a layer that sets retention "short" or "long"
+ * turns caching on (unless the same layer says enabled: false), retention
+ * "none" turns it off, and turning caching on over an inherited "none"
+ * restores "short".
+ */
+function overlayCaching(base: ResolvedPromptCaching, raw: unknown): ResolvedPromptCaching {
+  if (typeof raw === "boolean") raw = { enabled: raw };
+  if (!isRecord(raw)) return base;
+  const out = { ...base };
+  const hasEnabled = typeof raw.enabled === "boolean";
+  if (hasEnabled) out.enabled = raw.enabled as boolean;
+  if (typeof raw.format === "string" && CACHE_FORMATS.has(raw.format)) {
+    out.format = raw.format as ResolvedPromptCaching["format"];
+  }
+  if (raw.retention === "none") {
+    out.retention = "none";
+    out.enabled = false;
+  } else if (raw.retention === "short" || raw.retention === "long") {
+    out.retention = raw.retention;
+    if (!hasEnabled) out.enabled = true;
+  }
+  if (out.enabled && out.retention === "none") out.retention = "short";
+  if (raw.warming === "off" || raw.warming === "on") out.warming = raw.warming;
+  if (typeof raw.promptCacheKey === "string" && CACHE_KEY_MODES.has(raw.promptCacheKey)) {
+    out.promptCacheKey = raw.promptCacheKey as ResolvedPromptCaching["promptCacheKey"];
+  }
+  return out;
+}
+
+/** Defaults: caching on at the 5-minute tier, warming off. */
+export const PROMPT_CACHING_DEFAULTS: Readonly<ResolvedPromptCaching> = Object.freeze({
+  enabled: true, format: "auto", retention: "short", warming: "off", promptCacheKey: "auto",
+});
+
+/**
+ * Effective prompt-caching settings: defaults, then the top-level value, then
+ * the provider's own. Invalid values are ignored, so a typo in the hand-edited
+ * config never produces a flag pi does not understand. `enabled` is false
+ * exactly when `retention` is "none".
+ */
+export function resolvePromptCaching(globalSetting?: unknown, providerSetting?: unknown): ResolvedPromptCaching {
+  const out = overlayCaching(overlayCaching({ ...PROMPT_CACHING_DEFAULTS }, globalSetting), providerSetting);
+  if (!out.enabled) out.retention = "none";
+  return out;
+}
+
+/** True for ids that name a Claude model, bare or namespaced. */
+export function isClaudeModelId(id: string): boolean {
+  const lower = id.toLowerCase();
+  return lower.includes("claude") || lower.startsWith("anthropic/");
+}
+
+function isOpenAIHost(baseUrl?: string): boolean {
+  try {
+    return new URL(baseUrl ?? "").hostname.toLowerCase() === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The compat flags and cache lifetimes that ask for prompt caching on one
+ * model, or undefined when caching is off (or format is "none").
+ *
+ * Lifetimes are what make a model eligible for pi's cache warming, so they
+ * are returned only with warming "on". With warming "off" (the default) pi
+ * never warms these models, whatever its own cacheWarming setting says.
+ */
+export function promptCachingFor(
+  modelId: string,
+  baseUrl: string | undefined,
+  caching: ResolvedPromptCaching | undefined,
+): { compat: Record<string, unknown>; promptCache: PromptCacheLifetimes } | undefined {
+  if (!caching?.enabled || caching.retention === "none" || caching.format === "none") return undefined;
+  const long = caching.retention === "long";
+  const anthropic = caching.format === "anthropic" ||
+    (caching.format === "auto" && isClaudeModelId(modelId));
+  if (anthropic) {
+    return {
+      compat: { cacheControlFormat: "anthropic", supportsLongCacheRetention: long },
+      promptCache: caching.warming !== "on" ? {}
+        : long ? { ...ANTHROPIC_CACHE_LIFETIMES } : { short: ANTHROPIC_CACHE_LIFETIMES.short },
+    };
+  }
+  // OpenAI-style: the upstream caches automatically, so only the routing key
+  // and (on OpenAI itself) long retention are worth asking for. Long retention
+  // is refused elsewhere because other OpenAI-compatible servers may reject
+  // prompt_cache_retention outright.
+  const openai = isOpenAIHost(baseUrl);
+  const longHere = long && openai;
+  return {
+    compat: { promptCacheKeyMode: caching.promptCacheKey, supportsLongCacheRetention: longHere },
+    promptCache: openai && caching.warming === "on"
+      ? (longHere ? { ...OPENAI_CACHE_LIFETIMES } : { short: OPENAI_CACHE_LIFETIMES.short })
+      : {},
+  };
+}
+
+function normalizeLifetimes(value: unknown): PromptCacheLifetimes | undefined {
+  if (!isRecord(value)) return undefined;
+  const out: PromptCacheLifetimes = {};
+  for (const tier of ["short", "long"] as const) {
+    const v = value[tier];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) out[tier] = Math.floor(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function buildProviderModels(
   models: CachedModel[],
   nativeModels: readonly NativeCatalogModel[] = [],
   compatBaseUrl?: string,
+  caching?: ResolvedPromptCaching,
 ) {
   return models.map((m) => {
     const id = m.id;
@@ -1356,7 +1538,12 @@ export function buildProviderModels(
       false;
     const thinkingLevelMap = explicitMap ?? (reasoning ? inferred?.thinkingLevelMap : undefined);
     const explicitCompat = isRecord(m.compat) ? m.compat : undefined;
-    const compat = explicitCompat ?? (reasoning ? inferred?.compat : undefined);
+    const baseCompat = explicitCompat ?? (reasoning ? inferred?.compat : undefined);
+    // Caching flags fill in underneath: a hand-written or catalog flag wins.
+    const cachingHints = promptCachingFor(id, compatBaseUrl, caching);
+    const compat = cachingHints ? { ...cachingHints.compat, ...(baseCompat ?? {}) } : baseCompat;
+    const promptCache = normalizeLifetimes(m.promptCache) ??
+      normalizeLifetimes(cachingHints?.promptCache);
     return {
       id,
       name: id,
@@ -1370,6 +1557,7 @@ export function buildProviderModels(
       ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
       ...(m.samplingParams ? { samplingParams: m.samplingParams } : {}),
       ...(compat ? { compat } : {}),
+      ...(promptCache ? { promptCache } : {}),
     };
   });
 }
@@ -1396,6 +1584,7 @@ export function mergeModelMetadata(previous: CachedModel[], fetched: CachedModel
       thinkingLevelMap: old.thinkingLevelMap ?? m.thinkingLevelMap,
       samplingParams: m.samplingParams ?? old.samplingParams,
       compat: m.compat ?? old.compat,
+      promptCache: m.promptCache ?? old.promptCache,
     };
   });
 }
@@ -1417,7 +1606,9 @@ export function registerProvider(
   key: string,
   p: ProviderConfig,
   nativeModels: readonly NativeCatalogModel[] = [],
+  globalCaching?: PromptCachingSetting,
 ): void {
+  const caching = resolvePromptCaching(globalCaching, p.promptCaching);
   pi.registerProvider(compatKey(key), {
     name: `compat/${key.replace(/_/g, "-")}`,
     baseUrl: p.baseUrl,
@@ -1429,7 +1620,7 @@ export function registerProvider(
     // this; ones that require a key return a clean 401.
     apiKey: p.apiKey ?? KEYLESS_PLACEHOLDER,
     api: "openai-completions" as const,
-    models: buildProviderModels(p.cachedModels, nativeModels, p.baseUrl),
+    models: buildProviderModels(p.cachedModels, nativeModels, p.baseUrl, caching),
   });
 }
 
@@ -1446,9 +1637,10 @@ export function tryRegisterProvider(
   key: string,
   p: ProviderConfig,
   nativeModels: readonly NativeCatalogModel[] = [],
+  globalCaching?: PromptCachingSetting,
 ): boolean {
   try {
-    registerProvider(pi, key, p, nativeModels);
+    registerProvider(pi, key, p, nativeModels, globalCaching);
     return true;
   } catch (e) {
     console.error(`[openai-compat:tryRegisterProvider] provider "${key}"`, e);
@@ -1474,7 +1666,7 @@ export default async function (pi: ExtensionAPI) {
   // continues — providers are visible in /model from the very first render.
   for (const [key, p] of Object.entries(config.providers)) {
     if (p.cachedModels.length > 0) {
-      tryRegisterProvider(pi, key, p, nativeCatalog);
+      tryRegisterProvider(pi, key, p, nativeCatalog, config.promptCaching);
     }
   }
 
@@ -1495,7 +1687,7 @@ export default async function (pi: ExtensionAPI) {
     for (const [key, p] of Object.entries(config.providers)) {
       if (p.cachedModels.length > 0) {
         // Use cached list — fast, no network call.
-        if (tryRegisterProvider(pi, key, p, nativeCatalog)) registered.push(p.displayName);
+        if (tryRegisterProvider(pi, key, p, nativeCatalog, config.promptCaching)) registered.push(p.displayName);
         else failed.push(p.displayName);
       } else {
         // Cache is empty (e.g. migrated from older config).  Try a live fetch,
@@ -1509,7 +1701,7 @@ export default async function (pi: ExtensionAPI) {
           if (models.length > 0) {
             p.cachedModels = models;
             saveConfig(config);
-            if (tryRegisterProvider(pi, key, p, nativeCatalog)) {
+            if (tryRegisterProvider(pi, key, p, nativeCatalog, config.promptCaching)) {
               registered.push(`${p.displayName} (refreshed)`);
             } else {
               failed.push(p.displayName);
@@ -1795,7 +1987,7 @@ export default async function (pi: ExtensionAPI) {
         modelsKeepTask: tpl.modelsKeepTask,
       };
       saveConfig(config);
-      if (!tryRegisterProvider(pi, key, config.providers[key], nativeCatalog)) {
+      if (!tryRegisterProvider(pi, key, config.providers[key], nativeCatalog, config.promptCaching)) {
         ctx.ui.notify(
           `${tpl.displayName} was saved but could not be registered with pi. ` +
           `Run /compat-logout to remove it, or check the log for details.`,
@@ -1862,7 +2054,7 @@ export default async function (pi: ExtensionAPI) {
             // flaky refresh must never blank out a working provider's models.
             p.cachedModels = mergeModelMetadata(p.cachedModels, models);
             saveConfig(config);
-            if (tryRegisterProvider(pi, key, p, nativeCatalog)) {
+            if (tryRegisterProvider(pi, key, p, nativeCatalog, config.promptCaching)) {
               refreshed.push(`${p.displayName} (${models.length})`);
             } else {
               failed.push(p.displayName);

@@ -41,7 +41,10 @@ import {
   mergeModelMetadata,
   normalizeInput,
   normalizeTokenCount,
+  promptCachingFor,
   registerProvider,
+  resolvePromptCaching,
+  isClaudeModelId,
   restrictPermissions,
   tryRegisterProvider,
 } from "../index.ts";
@@ -995,5 +998,143 @@ describe("catalog auth headers", () => {
   test("openmathmodel template points at the Open Math OS API and needs a key", () => {
     assert.equal(TEMPLATES.openmathmodel.baseUrl, "https://os.openmathmodel.org/v1");
     assert.equal(TEMPLATES.openmathmodel.keyless, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompt caching: compat models are plain openai-completions to pi, so without
+// these flags a Claude model behind OpenRouter or llmproxy was never sent the
+// cache_control markers its upstream needs, and was billed uncached.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("promptCaching", () => {
+  const D = { enabled: true, format: "auto", retention: "short", warming: "off", promptCacheKey: "auto" };
+
+  test("defaults: caching on at the short (5m) tier, warming off", () => {
+    assert.deepEqual(resolvePromptCaching(), D);
+    const [m] = buildProviderModels([{ id: "anthropic/claude-sonnet-5" }], [], undefined, resolvePromptCaching()) as any[];
+    assert.deepEqual(m.compat, { cacheControlFormat: "anthropic", supportsLongCacheRetention: false });
+    // No lifetimes, so pi never warms it.
+    assert.equal(m.promptCache, undefined);
+  });
+
+  test("buildProviderModels without settings adds nothing (callers pass them)", () => {
+    const [m] = buildProviderModels([{ id: "anthropic/claude-sonnet-5" }]) as any[];
+    assert.equal(m.compat, undefined);
+  });
+
+  for (const [raw, enabled, retention] of [
+    [{ retention: "none" }, false, "none"],
+    [{ retention: "short" }, true, "short"],
+    [{ retention: "long" }, true, "long"],
+    [false, false, "none"],
+    [true, true, "short"],
+    [{ enabled: false, retention: "long" }, false, "none"],
+  ] as const) {
+    test(`retention value ${JSON.stringify(raw)}`, () => {
+      const r = resolvePromptCaching(raw);
+      assert.equal(r.enabled, enabled);
+      assert.equal(r.retention, retention);
+    });
+  }
+
+  test("retention none adds no flags", () => {
+    assert.equal(promptCachingFor("claude-x", undefined, resolvePromptCaching({ retention: "none" })), undefined);
+  });
+
+  test("provider setting overrides the top-level one", () => {
+    assert.equal(resolvePromptCaching({ retention: "none" }, { retention: "long" }).retention, "long");
+    assert.equal(resolvePromptCaching({ retention: "none" }, true).retention, "short");
+    assert.equal(resolvePromptCaching({ retention: "long" }, true).retention, "long");
+    assert.equal(resolvePromptCaching({ retention: "long" }, false).enabled, false);
+    assert.equal(resolvePromptCaching({ warming: "on" }, { warming: "off" }).warming, "off");
+  });
+
+  test("invalid values are ignored", () => {
+    const r = resolvePromptCaching({ format: "weird", retention: "forever", warming: "idle", promptCacheKey: 3 });
+    assert.deepEqual(r, D);
+  });
+
+  test("warming on declares lifetimes; warming off never does", () => {
+    const long = resolvePromptCaching({ retention: "long", warming: "on" });
+    assert.deepEqual(promptCachingFor("claude-opus-5-5", undefined, long)?.promptCache, { short: 300, long: 3600 });
+    const short = resolvePromptCaching({ warming: "on" });
+    assert.deepEqual(promptCachingFor("claude-opus-5-5", undefined, short)?.promptCache, { short: 300 });
+    const off = resolvePromptCaching({ retention: "long" });
+    assert.deepEqual(promptCachingFor("claude-opus-5-5", undefined, off)?.promptCache, {});
+    assert.deepEqual(promptCachingFor("gpt-5.5", "https://api.openai.com/v1", off)?.promptCache, {});
+  });
+
+  test("Claude ids get Anthropic markers and 1h retention when long", () => {
+    const caching = resolvePromptCaching({ retention: "long" });
+    const [m] = buildProviderModels(
+      [{ id: "anthropic/claude-opus-5-5" }], [], "http://127.0.0.1:8080/v1", caching) as any[];
+    assert.deepEqual(m.compat, { cacheControlFormat: "anthropic", supportsLongCacheRetention: true });
+    assert.equal(m.promptCache, undefined);
+  });
+
+  test("other models get the prompt_cache_key mode and never long retention off OpenAI", () => {
+    const caching = resolvePromptCaching({ retention: "long", promptCacheKey: "enabled", warming: "on" });
+    const [m] = buildProviderModels(
+      [{ id: "llmproxy/flagship__free" }], [], "http://127.0.0.1:8080/v1", caching) as any[];
+    assert.deepEqual(m.compat, { promptCacheKeyMode: "enabled", supportsLongCacheRetention: false });
+    assert.equal(m.promptCache, undefined);
+  });
+
+  test("api.openai.com may be asked for 24h retention", () => {
+    const hints = promptCachingFor("gpt-5.5", "https://api.openai.com/v1",
+      resolvePromptCaching({ retention: "long", warming: "on" }));
+    assert.equal(hints?.compat.supportsLongCacheRetention, true);
+    assert.deepEqual(hints?.promptCache, { short: 300, long: 86400 });
+  });
+
+  test("format none adds nothing; format anthropic forces markers", () => {
+    assert.equal(promptCachingFor("claude-x", undefined, resolvePromptCaching({ format: "none" })), undefined);
+    const forced = promptCachingFor("qwen/qwen3", undefined, resolvePromptCaching({ format: "anthropic" }));
+    assert.equal(forced?.compat.cacheControlFormat, "anthropic");
+  });
+
+  test("hand-written compat and promptCache win over derived hints", () => {
+    const caching = resolvePromptCaching({ retention: "long", warming: "on" });
+    const [m] = buildProviderModels([{
+      id: "claude-sonnet-5",
+      compat: { supportsLongCacheRetention: false, supportsStore: false },
+      promptCache: { short: 120 },
+    }], [], undefined, caching) as any[];
+    assert.deepEqual(m.compat, {
+      cacheControlFormat: "anthropic", supportsLongCacheRetention: false, supportsStore: false,
+    });
+    assert.deepEqual(m.promptCache, { short: 120 });
+  });
+
+  test("registerProvider applies top-level and provider settings", () => {
+    const calls: any[] = [];
+    const pi = { registerProvider: (_k: string, cfg: any) => calls.push(cfg) } as any;
+    const provider = {
+      displayName: "LLMProxy", baseUrl: "http://127.0.0.1:8080/v1", apiKey: null,
+      cachedModels: [{ id: "anthropic/claude-opus-5-5" }, { id: "groq/llama" }],
+      promptCaching: { retention: "long" as const },
+    };
+    registerProvider(pi, "llmproxy", provider, [], undefined);
+    const [claude, other] = calls[0].models;
+    assert.equal(claude.compat.cacheControlFormat, "anthropic");
+    assert.equal(claude.compat.supportsLongCacheRetention, true);
+    assert.equal(claude.promptCache, undefined);
+    assert.equal(other.compat.promptCacheKeyMode, "auto");
+    calls.length = 0;
+    registerProvider(pi, "llmproxy", { ...provider, promptCaching: undefined }, [], { retention: "none" });
+    assert.equal(calls[0].models[0].compat, undefined);
+  });
+
+  test("isClaudeModelId", () => {
+    assert.equal(isClaudeModelId("anthropic/claude-sonnet-5"), true);
+    assert.equal(isClaudeModelId("anthropic__claude-opus-5-5"), true);
+    assert.equal(isClaudeModelId("CLAUDE-3"), true);
+    assert.equal(isClaudeModelId("deepseek/deepseek-v4"), false);
+  });
+
+  test("mergeModelMetadata keeps a hand-written promptCache across refreshes", () => {
+    const merged = mergeModelMetadata([{ id: "a", promptCache: { short: 60 } }], [{ id: "a" }]);
+    assert.deepEqual(merged[0].promptCache, { short: 60 });
   });
 });
