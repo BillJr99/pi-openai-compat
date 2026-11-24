@@ -553,6 +553,18 @@ export const TEMPLATES: Record<string, {
     keyless: false,
     keyHint: "xkiro.com console — keys look like sk-xt-... (docs at docs.xkiro.com)",
   },
+  aihubmix: {
+    displayName: "AIHubMix",
+    baseUrl: "https://aihubmix.com/v1",
+    keyless: false,
+    // AIHubMix multi-vendor gateway. The OpenAI-compatible API lives at
+    // aihubmix.com/v1: GET /v1/models returns the standard {id, object,
+    // owned_by} list and POST /v1/chat/completions answers 401 without a key
+    // (checked November 2026). aihubmix.com/api/v1 is a catalog-only API
+    // (entries carry model_id, not id, and /api/v1/chat/completions is a
+    // 404), so it cannot serve as baseUrl.
+    keyHint: "console.aihubmix.com (docs at docs.aihubmix.com)",
+  },
   teamorouter: {
     displayName: "TeamoRouter",
     baseUrl: "https://api.teamorouter.com/v1",
@@ -758,7 +770,7 @@ const CONFIG_DIR = path.join(os.homedir(), ".config", "pi-openai-compat");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
 
 // config.json holds every provider's API key in cleartext, so neither it nor
-// its directory may be group- or world-readable. add-provider.sh already writes
+// its directory may be group- or world-readable. scripts/add-provider.sh already writes
 // 0600; these constants keep the extension's own writes consistent with it.
 export const CONFIG_DIR_MODE = 0o700;
 export const CONFIG_FILE_MODE = 0o600;

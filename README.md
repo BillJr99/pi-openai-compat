@@ -65,6 +65,7 @@ If pi is already running when you install, type `/reload` first.
 | **OpenCode Zen** | `https://opencode.ai/zen/v1` | API key from opencode.ai |
 | **B.AI** | `https://api.b.ai/v1` | API key from the B.AI console at b.ai (docs.b.ai) |
 | **xKiro** | `https://api.xkiro.com/v1` | `sk-xt-...` key from the xKiro console at xkiro.com (docs.xkiro.com) |
+| **AIHubMix** | `https://aihubmix.com/v1` | API key from console.aihubmix.com (docs.aihubmix.com); use `/v1`, since `/api/v1` is a catalog-only API |
 | **TeamoRouter** | `https://api.teamorouter.com/v1` | `sk-teamo-...` key from teamorouter.com (teamorouter.com/docs) |
 | **GMI Cloud** | `https://api.gmi-serving.com/v1` | API key from console.gmicloud.ai → Organization Settings → API Keys |
 | **Token Harbor** | `https://tokenharbor.ai/v1` | `thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys |
@@ -300,31 +301,47 @@ flag on the model in `config.json`:
   "compat": { "supportsReasoningEffort": true } }
 ```
 
-### Adding a provider without pi — `add-provider.sh`
+### Adding a provider without pi — `scripts/add-provider.sh`
 
 `/compat-login` is the normal path, but the repo also ships a standalone script
 that writes the same config entry from a shell:
 
 ```
-./add-provider.sh
+scripts/add-provider.sh
 ```
 
-It lists every provider in `TEMPLATES` (read out of `index.ts` at runtime, so it
-never drifts), then prompts for the API key and for the config file path —
-defaulting to `~/.config/pi-openai-compat/config.json`, and offering to create it
-if it is missing.  It fetches the model catalog, writes
-`providers.<key>` with `displayName` / `baseUrl` / `apiKey` / `cachedModels`
-exactly as the wizard would, backs the old file up to `config.json.bak`, and
-leaves the result `chmod 600`.  Existing providers and `previousModel` are
-preserved, and re-running it just updates the one entry.
+It first asks which server to configure: press Enter for `local` (this
+machine), or give any ssh destination (`host`, `user@host`, or an
+`~/.ssh/config` alias).  It then lists every provider in `TEMPLATES` (read out of
+`index.ts` at runtime, so it never drifts).  Pick one by number, or type text
+(part of the key, name or URL, such as `hub` for AIHubMix) to narrow the list; a
+single match asks for confirmation, and Enter on its own shows the full list
+again.  It then prompts for the API key (typed hidden) and for the config file
+path, defaulting to `~/.config/pi-openai-compat/config.json` on the chosen
+server and offering to create it if it is missing.  It fetches the model
+catalog, copies the existing config to
+`/tmp/pi-openai-compat-config.<timestamp>.<random>` (mode `600`, since it holds
+keys) and to `config.json.bak`, writes `providers.<key>` with `displayName` /
+`baseUrl` / `apiKey` / `cachedModels` exactly as the wizard would, and leaves the
+result `chmod 600`.  Existing providers and `previousModel` are preserved, and
+re-running it just updates the one entry.
 
-If the catalog cannot be fetched (wrong key, provider down), it falls back to the
-template's built-in model list, or lets you type model IDs by hand.  If the
-provider you pick is missing from this checkout's `index.ts` — the script carries
-its own copy of the newest templates — it offers to add the template and the
-README row too.
+For a remote server, every prompt and the catalog fetch still run on your
+machine.  The script then opens one ssh session that resolves `~` against the
+remote home, makes the `/tmp` backup and does the merge there.  The remote host
+needs `node` but no checkout of this repo.  The API key is sent inside that
+session's input stream, never as a command-line argument, so it does not show
+up in `ps` on either machine.
 
-Afterwards, run `/reload` in pi to pick up the new provider.
+If the catalog cannot be fetched (provider down, no catalog route), it falls
+back to the template's built-in model list, or lets you type model IDs by hand.
+A key the provider rejects (HTTP 401/403) stops the script instead, because
+saving it would leave a provider whose every request fails.  If the provider
+you pick is missing from this checkout's `index.ts` — the script carries its own
+copy of the newest templates — it offers to add the template and the README row
+too.
+
+Afterwards, run `/reload` in pi on that server to pick up the new provider.
 
 ---
 

@@ -3,22 +3,27 @@
 # add-provider.sh — provision an OpenAI-compatible provider for pi-openai-compat
 # without going through the /compat-login wizard inside pi.
 #
-# Prompts for the provider, its API key and the config file path, fetches the
-# model catalog, and merges the result into ~/.config/pi-openai-compat/config.json
-# — the same file, and the same shape, that /compat-login writes. If the chosen
+# Prompts for the server (local by default, or any ssh destination), the
+# provider (pick by number or type to filter), its API key and the config file
+# path, fetches the model catalog, backs the existing config up to /tmp, and
+# merges the result into ~/.config/pi-openai-compat/config.json — the same file,
+# and the same shape, that /compat-login writes. For a remote server the prompts
+# and the catalog fetch run here; the backup and merge run there over ssh. If the chosen
 # provider is missing from this checkout's index.ts, it also offers to add the
 # template there and to the README table, so the script works on older checkouts.
 #
-# Requires: node (already required to run the extension) and curl. No jq.
+# Requires: node (already required to run the extension) and curl; ssh, and
+# node on the remote host, for a remote server. No jq.
 #
-# Usage: ./add-provider.sh
+# Usage: scripts/add-provider.sh
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-INDEX_TS="$SCRIPT_DIR/index.ts"
-README_MD="$SCRIPT_DIR/README.md"
-DEFAULT_CONFIG="${HOME}/.config/pi-openai-compat/config.json"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+INDEX_TS="$REPO_ROOT/index.ts"
+README_MD="$REPO_ROOT/README.md"
+DEFAULT_CONFIG="~/.config/pi-openai-compat/config.json"
 
 command -v node >/dev/null 2>&1 || { echo "error: node is required but not on PATH." >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "error: curl is required but not on PATH." >&2; exit 1; }
@@ -41,6 +46,12 @@ const BUILTIN = {
     baseUrl: "https://api.xkiro.com/v1",
     keyless: false,
     keyHint: "xkiro.com console — keys look like sk-xt-... (docs at docs.xkiro.com)",
+  },
+  aihubmix: {
+    displayName: "AIHubMix",
+    baseUrl: "https://aihubmix.com/v1",
+    keyless: false,
+    keyHint: "console.aihubmix.com (docs at docs.aihubmix.com)",
   },
   teamorouter: {
     displayName: "TeamoRouter",
@@ -153,6 +164,7 @@ const BUILTIN = {
 // README "Auth" column text for the built-in providers, used only by patchreadme.
 const BUILTIN_AUTH = {
   xkiro: "`sk-xt-...` key from the xKiro console at xkiro.com (docs.xkiro.com)",
+  aihubmix: "API key from console.aihubmix.com (docs.aihubmix.com); chat is served from aihubmix.com/v1, not the catalog-only /api/v1",
   teamorouter: "`sk-teamo-...` key from teamorouter.com (teamorouter.com/docs)",
   gmi: "API key from console.gmicloud.ai → Organization Settings → API Keys",
   tokenharbor: "`thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys",
@@ -308,9 +320,11 @@ if (cmd === "menu") {
   process.stdout.write(JSON.stringify(models));
 
 } else if (cmd === "merge") {
-  // args: configPath providerKey providerJson
-  const [configPath, key, providerJson] = args;
-  const provider = JSON.parse(providerJson);
+  // args: configPath providerKey. The provider JSON (which holds the API key)
+  // arrives in ADD_PROVIDER_JSON rather than on the command line, where any
+  // local user could read it from `ps`.
+  const [configPath, key] = args;
+  const provider = JSON.parse(process.env.ADD_PROVIDER_JSON || "{}");
   let config = { previousModel: null, providers: {} };
   if (fs.existsSync(configPath)) {
     const text = fs.readFileSync(configPath, "utf8").trim();
@@ -381,7 +395,7 @@ node_helper() { node "$HELPER" "$@"; }
 
 # ── Read the provider list straight out of index.ts ──────────────────────────
 if [ ! -f "$INDEX_TS" ]; then
-  echo "error: index.ts not found next to this script ($INDEX_TS)." >&2
+  echo "error: index.ts not found in the repo root ($INDEX_TS)." >&2
   exit 1
 fi
 MENU_JSON="$(node_helper menu "$INDEX_TS")"
@@ -390,11 +404,18 @@ if [ "$(printf '%s' "$MENU_JSON" | node -e 'let s="";process.stdin.on("data",d=>
   echo "         providers built into this script." >&2
 fi
 
-mapfile -t KEYS < <(printf '%s' "$MENU_JSON" | node -e '
+# key <TAB> displayName <TAB> baseUrl, one row per template, in menu order.
+mapfile -t ROWS < <(printf '%s' "$MENU_JSON" | node -e '
 let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   const t=JSON.parse(s).templates;
-  for (const k of Object.keys(t)) console.log(k);
+  for (const [k,v] of Object.entries(t))
+    console.log([k, String(v.displayName||k).replace(/\t/g," "), v.baseUrl||"<you supply the URL>"].join("\t"));
 });')
+KEYS=(); DISPLAYS=(); URLS=()
+for row in "${ROWS[@]}"; do
+  IFS=$'\t' read -r k d u <<<"$row"
+  KEYS+=("$k"); DISPLAYS+=("$d"); URLS+=("${u:-}")
+done
 
 tpl_field() { # tpl_field <key> <field>
   printf '%s' "$MENU_JSON" | KEY="$1" FIELD="$2" node -e '
@@ -409,25 +430,71 @@ let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
 echo
 echo "pi-openai-compat — add a provider"
 echo "================================="
-echo
-i=1
-for k in "${KEYS[@]}"; do
-  disp="$(tpl_field "$k" displayName)"
-  url="$(tpl_field "$k" baseUrl)"
-  printf '%3d) %-28s %s\n' "$i" "$disp" "${url:-<you supply the URL>}"
-  i=$((i + 1))
-done
-echo
 
-while :; do
-  read -r -p "Select a provider [1-${#KEYS[@]}]: " choice
+# ── Target server ────────────────────────────────────────────────────────────
+# "local" edits this machine's config. Anything else is an ssh destination
+# (host, user@host or an ~/.ssh/config alias): the prompts and the catalog
+# fetch run here, and the backup and merge run on that host over ssh. The API
+# key travels inside the ssh session's stdin, never on a command line.
+echo
+read -r -p "Server to add it to (local, or an ssh host such as user@host) [local]: " TARGET
+TARGET="${TARGET:-local}"
+case "$TARGET" in local|localhost|127.0.0.1|::1) TARGET=local ;; esac
+if [ "$TARGET" != "local" ]; then
+  command -v ssh >/dev/null 2>&1 || { echo "error: ssh is required for a remote server." >&2; exit 1; }
+  echo "  Checking ssh access to $TARGET …"
+  # -n: the check must not read this script's stdin (the user's answers).
+  ssh -n -o ConnectTimeout=15 "$TARGET" 'command -v node >/dev/null 2>&1' \
+    || { echo "error: cannot reach $TARGET over ssh, or node is not installed there." >&2; exit 1; }
+fi
+
+# Run a bash script read from stdin on the target (this machine or $TARGET).
+run_on_target() {
+  if [ "$TARGET" = "local" ]; then bash -s; else ssh -T -o ConnectTimeout=15 "$TARGET" bash -s; fi
+}
+
+# ── Provider menu (pick by number, or type text to filter) ──────────────────
+print_rows() {
+  local idx
+  for idx in "$@"; do
+    printf '%3d) %-28s %s\n' "$((idx + 1))" "${DISPLAYS[idx]}" "${URLS[idx]}"
+  done
+}
+ALL_IDX=("${!KEYS[@]}")
+echo
+print_rows "${ALL_IDX[@]}"
+echo
+echo "Enter a number to choose, text to filter by key, name or URL (e.g. 'hub'),"
+echo "or press Enter to show the full list again."
+SEL=""
+while [ -z "$SEL" ]; do
+  read -r -p "Select a provider [1-${#KEYS[@]} or filter text]: " choice
   case "$choice" in
-    ''|*[!0-9]*) echo "  Enter a number." ;;
-    *) if [ "$choice" -ge 1 ] && [ "$choice" -le "${#KEYS[@]}" ]; then break; fi
-       echo "  Out of range." ;;
+    '') print_rows "${ALL_IDX[@]}" ;;
+    *[!0-9]*)
+      q="${choice,,}"
+      matches=()
+      for i in "${ALL_IDX[@]}"; do
+        hay="${KEYS[i]} ${DISPLAYS[i]} ${URLS[i]}"
+        [[ "${hay,,}" == *"$q"* ]] && matches+=("$i")
+      done
+      if [ "${#matches[@]}" -eq 0 ]; then
+        echo "  No provider matches '$choice'."
+      elif [ "${#matches[@]}" -eq 1 ]; then
+        read -r -p "  Use ${DISPLAYS[matches[0]]}? [Y/n]: " yn
+        case "${yn:-Y}" in [Nn]*) ;; *) SEL="${matches[0]}" ;; esac
+      else
+        print_rows "${matches[@]}"
+      fi
+      ;;
+    *) if [ "$choice" -ge 1 ] && [ "$choice" -le "${#KEYS[@]}" ]; then
+         SEL="$((choice - 1))"
+       else
+         echo "  Out of range."
+       fi ;;
   esac
 done
-TPL_KEY="${KEYS[$((choice - 1))]}"
+TPL_KEY="${KEYS[SEL]}"
 
 DISPLAY_NAME="$(tpl_field "$TPL_KEY" displayName)"
 BASE_URL="$(tpl_field "$TPL_KEY" baseUrl)"
@@ -492,21 +559,29 @@ else
   fi
 fi
 
-# ── Config file path ─────────────────────────────────────────────────────────
+# ── Config file path (resolved on the target, so ~ means that host's home) ──
 echo
-read -r -p "Config file [$DEFAULT_CONFIG]: " CONFIG_PATH
+read -r -p "Config file on $TARGET [$DEFAULT_CONFIG]: " CONFIG_PATH
 CONFIG_PATH="${CONFIG_PATH:-$DEFAULT_CONFIG}"
-case "$CONFIG_PATH" in "~"/*) CONFIG_PATH="$HOME/${CONFIG_PATH#\~/}" ;; esac
 
-if [ ! -f "$CONFIG_PATH" ]; then
-  read -r -p "$CONFIG_PATH does not exist. Create it? [Y/n]: " yn
+# Prints "yes <path>" or "no <path>" with ~ expanded on the target.
+PROBE="$({
+  printf 'CONFIG_PATH=%q\n' "$CONFIG_PATH"
+  cat <<'SH_EOF'
+case "$CONFIG_PATH" in "~") CONFIG_PATH="$HOME" ;; "~"/*) CONFIG_PATH="$HOME/${CONFIG_PATH#\~/}" ;; esac
+if [ -f "$CONFIG_PATH" ]; then echo "yes $CONFIG_PATH"; else echo "no $CONFIG_PATH"; fi
+SH_EOF
+} | run_on_target)"
+CONFIG_PATH="${PROBE#* }"
+if [ "${PROBE%% *}" != "yes" ]; then
+  read -r -p "$CONFIG_PATH does not exist on $TARGET. Create it? [Y/n]: " yn
   case "${yn:-Y}" in [Nn]*) echo "Aborted."; exit 1 ;; esac
 fi
 
 # ── Fetch the model catalog ──────────────────────────────────────────────────
 FETCH_URL="${MODELS_URL:-$BASE_URL/models}"
 echo
-echo "Fetching models from $FETCH_URL …"
+echo "Fetching models from $FETCH_URL (from this machine) …"
 BODY="$TMPDIR_RUN/models.json"
 # Same rule as catalogHeaders() in index.ts: Anthropic's /v1/models takes the
 # key as x-api-key + anthropic-version and answers 401 to a Bearer API key.
@@ -587,12 +662,34 @@ if (e.MODELS_KEEP_TASK) out.modelsKeepTask = e.MODELS_KEEP_TASK;
 process.stdout.write(JSON.stringify(out));'
 )"
 
-RESULT="$(node_helper merge "$CONFIG_PATH" "$PROVIDER_KEY" "$PROVIDER_JSON")"
+# ── Back up to /tmp, then merge (on the target) ─────────────────────────────
+OUT="$({
+  echo 'set -euo pipefail'
+  printf 'CONFIG_PATH=%q\nPROVIDER_KEY=%q\n' "$CONFIG_PATH" "$PROVIDER_KEY"
+  printf 'export ADD_PROVIDER_JSON=%q\n' "$PROVIDER_JSON"
+  echo 'T="$(mktemp -d)"; trap '"'"'rm -rf "$T"'"'"' EXIT'
+  echo "cat > \"\$T/helper.js\" <<'NODE_EOF'"
+  cat "$HELPER"
+  echo 'NODE_EOF'
+  cat <<'SH_EOF'
+if [ -f "$CONFIG_PATH" ]; then
+  # mktemp creates the file 0600; cp keeps that mode, since the copy holds keys.
+  BK="$(mktemp "/tmp/pi-openai-compat-config.$(date +%Y%m%d-%H%M%S).XXXXXX")"
+  cp "$CONFIG_PATH" "$BK"
+  echo "backup $BK"
+fi
+echo "result $(node "$T/helper.js" merge "$CONFIG_PATH" "$PROVIDER_KEY")"
+SH_EOF
+} | run_on_target)"
+BACKUP="$(printf '%s\n' "$OUT" | sed -n 's/^backup //p')"
+RESULT="$(printf '%s\n' "$OUT" | sed -n 's/^result //p')"
+[ -n "$RESULT" ] || { echo "error: the merge on $TARGET did not complete." >&2; exit 1; }
 echo
+[ -n "$BACKUP" ] && echo "Backed up the original config on $TARGET to $BACKUP (and $CONFIG_PATH.bak)."
 if [ "$RESULT" = "updated" ]; then
-  echo "Updated provider '$PROVIDER_KEY' in $CONFIG_PATH (previous version saved to $CONFIG_PATH.bak)."
+  echo "Updated provider '$PROVIDER_KEY' in $CONFIG_PATH on $TARGET."
 else
-  echo "Added provider '$PROVIDER_KEY' to $CONFIG_PATH."
+  echo "Added provider '$PROVIDER_KEY' to $CONFIG_PATH on $TARGET."
 fi
 
 # ── Offer to add the template to this checkout if it is missing ──────────────
@@ -620,4 +717,4 @@ process.stdout.write(JSON.stringify({
 fi
 
 echo
-echo "Done. In pi, run /reload (then /model to pick a $DISPLAY_NAME model)."
+echo "Done. In pi on $TARGET, run /reload (then /model to pick a $DISPLAY_NAME model)."

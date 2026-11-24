@@ -34,4 +34,4 @@ jobs:
         run: npm test
 
       - name: Shell syntax check
-        run: bash -n add-provider.sh
+        run: bash -n scripts/add-provider.sh
