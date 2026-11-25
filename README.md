@@ -71,7 +71,6 @@ If pi is already running when you install, type `/reload` first.
 | **Token Harbor** | `https://tokenharbor.ai/v1` | `thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys |
 | **TokenRouter** | `https://api.tokenrouter.com/v1` | API key from the TokenRouter console at tokenrouter.com (model prices at tokenrouter.com/models) |
 | **Atria ASI** | `https://api.atria-asi.ai/v1` | `atr_...` key from api.atria-asi.ai/console/keys (Google sign-in) |
-| **Unbiased AI** | `https://api.unbiased.ai/v1` | `sk_...` key from platform.unbiased.ai (signup reviewed by hand) |
 | **Kilo AI** | `https://api.kilo.ai/api/gateway` | API key from app.kilo.ai → Your Profile (personal account), at the bottom of the page; needs account credits |
 | **ModelScope** | `https://api-inference.modelscope.cn/v1` | `ms-...` SDK token from modelscope.cn/my/myaccesstoken |
 | **Aion Labs** | `https://api.aionlabs.ai/v1` | API key from aionlabs.ai/app/api-keys (aionlabs.ai/docs) |
@@ -98,7 +97,7 @@ If pi is already running when you install, type `/reload` first.
 > 2. **Built-in fallback list** when no working catalog endpoint exists. Used
 >    when discovery fails or when the upstream simply has no `/models` at all
 >    (e.g. **Hugging Face** returns HTML, **Cloudflare AI Gateway** has no
->    catalog endpoint, **Unbiased AI** has no such route).
+>    catalog endpoint).
 >
 > A fallback list stands in for a missing endpoint, never for a rejected
 > credential: a catalog fetch that fails with 401 or 403 aborts the login
@@ -111,7 +110,6 @@ If pi is already running when you install, type `/reload` first.
 > | **Cloudflare Workers AI** | HTTP 405 (no `GET /v1/models`; real catalog at `/ai/models/search`, id field is `name`, mixed task types) | Live discovery — `modelsUrl: …/ai/models/search`, `modelsIdField: name`, `modelsKeepTask: "Text Generation"` |
 > | **Cloudflare AI Gateway** | HTTP 401 (token missing `AI Gateway: Run`) or HTTP 400 *"Please configure AI Gateway"* (gateway slug doesn't exist, or the upstream isn't configured on it) | Built-in fallback list |
 > | **Hugging Face** | Returns HTML rather than JSON | Built-in fallback list |
-> | **Unbiased AI** | HTTP 404 `unknown_url` with a valid key (no `/v1/models` at all; an *invalid* key returns 401 on every path, including ones that do not exist, so a 401 here proves nothing) | Built-in fallback list |
 >
 > **Auto-heal for older configs:** if you logged in before live discovery
 > existed, your saved provider is missing these `modelsUrl`/`modelsIdField`/

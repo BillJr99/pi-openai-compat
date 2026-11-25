@@ -892,7 +892,7 @@ describe("catalog failures: a missing endpoint is not a bad key", () => {
     // stand in: it would save a provider that fails every completion.
     assert.equal(isAuthFailure({ status: 401 }), true);
     assert.equal(isAuthFailure({ status: 403 }), true);
-    // 404 is the Unbiased AI case: the key was accepted, the path is absent.
+    // 404: the key was accepted, the path is absent.
     assert.equal(isAuthFailure({ status: 404 }), false);
     assert.equal(isAuthFailure({ status: 500 }), false);
     // A network error carries no status; treat it as non-auth so an offline
@@ -900,12 +900,6 @@ describe("catalog failures: a missing endpoint is not a bad key", () => {
     assert.equal(isAuthFailure(new Error("fetch failed")), false);
     assert.equal(isAuthFailure(null), false);
     assert.equal(isAuthFailure(undefined), false);
-  });
-
-  test("unbiased_ai ships a fallback list, because it publishes no catalog", () => {
-    // GET /v1/models returns 404 "unknown_url" with a valid key, so discovery
-    // finds nothing and /compat-login would refuse to save without this.
-    assert.deepEqual(TEMPLATES.unbiased_ai.fallbackModels, ["pareto"]);
   });
 
   test("every fallback list names at least one model", () => {
