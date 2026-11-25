@@ -83,12 +83,6 @@ const BUILTIN = {
     keyless: false,
     keyHint: "api.atria-asi.ai/console/keys (Google sign-in; keys look like atr_...; docs at api.atria-asi.ai/docs)",
   },
-  unbiased_ai: {
-    displayName: "Unbiased AI",
-    baseUrl: "https://api.unbiased.ai/v1",
-    keyless: false,
-    keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
-  },
   meta_muse: {
     displayName: "Meta Muse",
     baseUrl: "https://api.meta.ai/v1",
@@ -170,7 +164,6 @@ const BUILTIN_AUTH = {
   tokenharbor: "`thk_live_...` Universal Key from tokenharbor.ai/dashboard/api-keys",
   tokenrouter: "API key from the TokenRouter console at tokenrouter.com (model prices at tokenrouter.com/models)",
   atria_asi: "`atr_...` key from api.atria-asi.ai/console/keys (Google sign-in)",
-  unbiased_ai: "`sk_...` key from platform.unbiased.ai (signup reviewed by hand)",
   meta_muse: "API key from the Meta developer console at dev.meta.ai (Chat Completions; models pinned to Muse Wonder/Spark/Ember)",
   kilo: "API key from app.kilo.ai → Your Profile (personal account), at the bottom of the page; needs account credits",
   modelscope: "`ms-...` SDK token from modelscope.cn/my/myaccesstoken",

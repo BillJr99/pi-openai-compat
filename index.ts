@@ -656,31 +656,6 @@ export const TEMPLATES: Record<string, {
     // already sends, so no modelsUrl or fallbackModels override is needed.
     keyHint: "api.atria-asi.ai/console/keys (Google sign-in; keys look like atr_...; docs at api.atria-asi.ai/docs)",
   },
-  unbiased_ai: {
-    displayName: "Unbiased AI",
-    baseUrl: "https://api.unbiased.ai/v1",
-    keyless: false,
-    // One model, "pareto", a blend of frontier and open models. The endpoint
-    // answers both /v1/chat/completions and Anthropic's /v1/messages and takes
-    // either Authorization: Bearer or x-api-key; pi is registered with the
-    // OpenAI pair, which is what registerProvider and fetchModels already send.
-    //
-    // GET /v1/models does NOT exist: with a valid key it returns 404
-    // "unknown_url". An earlier note here claimed the endpoint was registered
-    // and key-gated, reasoning from a well-formed but invalid key getting
-    // "Invalid API key" rather than a 404. That inference was wrong. The
-    // gateway authenticates before it routes, so a path that certainly does
-    // not exist returns the same 401: GET /v1/definitely-not-a-real-endpoint
-    // answers "Invalid API key" with a bad key and "Missing API key" without
-    // one, exactly as /v1/models does. A 401 here says nothing about routing.
-    //
-    // Discovery therefore finds nothing, which is what fallbackModels is for.
-    // It is safe here because the catch that consumes it now refuses to fall
-    // back on a 401/403 (see isAuthFailure), so a mistyped key still fails the
-    // login instead of being saved as a provider that fails every completion.
-    fallbackModels: ["pareto"],
-    keyHint: "platform.unbiased.ai (signup is reviewed by hand; keys look like sk_...)",
-  },
   kilo: {
     displayName: "Kilo AI",
     baseUrl: "https://api.kilo.ai/api/gateway",
